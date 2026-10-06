@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "Curated Table",
+    "slug": "curated-table",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#FFFFFF",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cvs.curatedtable.app"
+    },
+    "android": {
+      "package": "com.cvs.curatedtable.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "owner": "sd1241997",
+    "extra": {
+      "eas": {
+        "projectId": "4aa28771-69c3-4378-a56c-255c7a50a2c5"
+      }
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Curated Table needs access to your photos so you can set your profile photo and cover image."
+        }
+      ]
+    ]
+  }
+}
