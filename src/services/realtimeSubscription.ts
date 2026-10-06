@@ -5,6 +5,7 @@ export interface FeedRealtimeHandlers {
   onNewPost: (post: Post) => void;
   onUpdatePost?: (post: Post) => void;
   onDeletePost?: (payload: { id?: string; deletedPostId?: string }) => void;
+  onPostLike?: (payload: { postId: string; likesCount: number; userId?: string; isLiked?: boolean }) => void;
   onNewComment?: (comment: PostComment) => void;
   onUpdateComment?: (comment: PostComment) => void;
   onDeleteComment?: (payload: { postId: string; commentId: string; deletedCommentId?: string; commentsCount?: number }) => void;
@@ -46,6 +47,12 @@ export function subscribeToFeedRealtime(handlers: FeedRealtimeHandlers): () => v
       console.log('[Supabase Realtime] Received "delete_post" broadcast:', payload);
       if (payload && handlers.onDeletePost) {
         handlers.onDeletePost(payload);
+      }
+    })
+    .on('broadcast', { event: 'post_like' }, ({ payload }) => {
+      console.log('[Supabase Realtime] Received "post_like" broadcast:', payload);
+      if (payload && payload.postId && handlers.onPostLike) {
+        handlers.onPostLike(payload);
       }
     })
     .on('broadcast', { event: 'new_comment' }, ({ payload }) => {

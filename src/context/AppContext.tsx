@@ -351,6 +351,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setPosts(prev => prev.filter(p => p.id !== targetId));
         }
       },
+      onPostLike: (payload) => {
+        console.log('[AppContext] Received live post_like:', payload.postId, 'likesCount:', payload.likesCount);
+        if (payload?.postId) {
+          setPosts(prev =>
+            prev.map(p =>
+              p.id === payload.postId
+                ? { ...p, likesCount: payload.likesCount }
+                : p
+            )
+          );
+        }
+      },
       onNewComment: (incomingComment: PostComment) => {
         console.log('[AppContext] Received live new_comment for post:', incomingComment.postId);
         setComments(prev => {
