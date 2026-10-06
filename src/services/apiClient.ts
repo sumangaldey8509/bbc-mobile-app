@@ -2,7 +2,7 @@ import { API_BASE_URL } from '../config/env';
 import { tokenStorage } from '../utils/tokenStorage';
 
 /**
- * Thin fetch wrapper for the curated-table-be API.
+ * Thin fetch wrapper for the BBC Backend API.
  *
  * The backend always responds with an envelope:
  *   { success: boolean, message: string, data?: any, error?: string }

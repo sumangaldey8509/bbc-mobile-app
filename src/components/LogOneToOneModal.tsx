@@ -80,7 +80,7 @@ export const LogOneToOneModal: React.FC = () => {
             <View style={styles.headerTitleGroup}>
               <View style={styles.badgePill}>
                 <Users2 color={colors.crimson} size={11} />
-                <Text style={styles.headerBadge}>CURATED TABLE</Text>
+                <Text style={styles.headerBadge}>BENGAL BUSINESS COUNCIL</Text>
               </View>
               <Text style={styles.headerTitle}>Schedule a 1-to-1 Meeting</Text>
             </View>

@@ -233,7 +233,7 @@ export const SearchScreen: React.FC = () => {
 
                   {/* Bio snippet */}
                   <Text style={styles.bioSnippet} numberOfLines={2}>
-                    {member.bio || 'Curated Table Member'}
+                    {member.bio || 'Bengal Business Council Member'}
                   </Text>
 
                   {/* Action Buttons Row */}

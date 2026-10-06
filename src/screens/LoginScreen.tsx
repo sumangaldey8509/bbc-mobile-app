@@ -126,7 +126,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
       return;
     }
 
-    // Password login authenticates against the Curated Table backend.
+    // Password login authenticates against the BBC backend.
     if (!isOtpMode) {
       handlePasswordLogin();
       return;
@@ -210,13 +210,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
               <View style={styles.headerSection}>
                 <View style={styles.loginEmblemWrapper}>
                   <Image
-                    source={require('../../assets/curated-table-app-icon.jpg')}
+                    source={require('../../assets/bbc-logo.jpeg')}
                     style={styles.loginEmblemImage}
-                    resizeMode="cover"
+                    resizeMode="contain"
                   />
                 </View>
 
-                <BrandLogo size="large" centered={true} taglineText="by CredoVation Solutions Pvt Ltd" style={styles.brandLogoBox} />
+                <BrandLogo size="large" centered={true} showLogoImage={false} taglineText="by Credovation Solutions Pvt Ltd" style={styles.brandLogoBox} />
 
                 <View style={styles.badgePill}>
                   <ShieldCheck color={colors.crimson} size={13} />
@@ -410,7 +410,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
                 <View style={styles.signupTextCol}>
                   <Users2 color={colors.crimson} size={20} />
                   <View style={styles.signupDetails}>
-                    <Text style={styles.signupTitle}>New to Curated Table?</Text>
+                    <Text style={styles.signupTitle}>New to Bengal Business Council?</Text>
                     <Text style={styles.signupSubtitle}>
                       Register for membership, get your digital visiting card, and join local chapters.
                     </Text>
@@ -428,7 +428,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
                 {/* Footer Assistance */}
                 <View style={styles.footerHelp}>
                   <Text style={styles.helpText}>
-                    Need help? Call <Text style={styles.helpHighlight}>+91 (033) 4000-8800</Text> or email <Text style={styles.helpHighlight}>founders@credovation.com</Text>
+                    Need help? Call <Text style={styles.helpHighlight}>+91 (033) 4000-8800</Text> or email <Text style={styles.helpHighlight}>hello@bengalbussinesscouncil.com</Text>
                   </Text>
                 </View>
               </BlurView>
@@ -492,7 +492,7 @@ const styles = StyleSheet.create({
     width: 68,
     height: 68,
     borderRadius: 18,
-    backgroundColor: '#07101E',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,

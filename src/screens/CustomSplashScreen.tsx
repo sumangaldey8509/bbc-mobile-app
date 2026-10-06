@@ -97,9 +97,9 @@ export const CustomSplashScreen: React.FC<CustomSplashScreenProps> = ({ onFinish
           >
             <View style={styles.emblemGlowAura} />
             <Image
-              source={require('../../assets/curated-table-app-icon.jpg')}
+              source={require('../../assets/bbc-logo.jpeg')}
               style={styles.emblemImage}
-              resizeMode="cover"
+              resizeMode="contain"
             />
           </Animated.View>
 
@@ -113,20 +113,20 @@ export const CustomSplashScreen: React.FC<CustomSplashScreenProps> = ({ onFinish
             ]}
           >
             <View style={styles.wordmarkRow}>
-              <Text style={styles.curatedWord}>CURATED </Text>
-              <Text style={styles.tableWord}>TABLE</Text>
+              <Text style={styles.bbcWord}>BBC </Text>
+              <Text style={styles.councilWord}>BENGAL BUSINESS COUNCIL</Text>
             </View>
 
             <View style={styles.taglineBox}>
               <View style={styles.taglineDot} />
               <Text style={styles.taglineText}>
-                by <Text style={styles.councilName}>CredoVation Solutions Pvt Ltd</Text>
+                by <Text style={styles.councilName}>Credovation Solutions Pvt Ltd</Text>
               </Text>
               <View style={styles.taglineDot} />
             </View>
 
             <Text style={styles.sloganText}>
-              Exclusive Community • Empowering Leaders
+              Bengalis mean Business • বঙ্গীয় বাণিজ্য পরিষদ
             </Text>
           </Animated.View>
         </View>
@@ -205,11 +205,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(216, 48, 48, 0.25)',
   },
   emblemImage: {
-    width: 150,
-    height: 150,
-    borderRadius: 36,
+    width: 140,
+    height: 140,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
     borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: 'rgba(255, 255, 255, 0.25)',
   },
   brandSection: {
     alignItems: 'center',
@@ -220,16 +221,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 8,
   },
-  curatedWord: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
-  tableWord: {
-    fontSize: 32,
+  bbcWord: {
+    fontSize: 26,
     fontWeight: '900',
     color: '#E63946', // Vibrant Crimson
+    letterSpacing: 0.5,
+  },
+  councilWord: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
     letterSpacing: 0.5,
   },
   taglineBox: {

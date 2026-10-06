@@ -77,7 +77,7 @@ export const RecordDealModal: React.FC = () => {
             <View style={styles.headerTitleGroup}>
               <View style={styles.badgePill}>
                 <Award color={colors.crimson} size={11} />
-                <Text style={styles.headerBadge}>CURATED TABLE</Text>
+                <Text style={styles.headerBadge}>BENGAL BUSINESS COUNCIL</Text>
               </View>
               <Text style={styles.headerTitle}>Record Business Deal</Text>
             </View>

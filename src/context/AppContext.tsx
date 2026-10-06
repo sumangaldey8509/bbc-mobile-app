@@ -107,7 +107,7 @@ interface AppContextType {
 
   // Actions
   login: (user?: User) => void;
-  /** Authenticate against curated-table-be with email/phone + password. Throws on failure. */
+  /** Authenticate against bbc-backend with email/phone + password. Throws on failure. */
   loginWithCredentials: (identifier: string, password: string) => Promise<void>;
   logout: () => void;
   register: (newUser: Partial<User>) => void;
@@ -508,12 +508,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         newUser.avatar ||
         'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
       membershipTier: newUser.membershipTier || 'Executive Member',
-      bio: newUser.bio || 'Curated Table active executive member.',
+      bio: newUser.bio || 'Bengal Business Council active executive member.',
       requirementDocs: [],
       contact: {
-        email: newUser.contact?.email || 'contact@curatedtable.app',
+        email: newUser.contact?.email || 'contact@bengalbusinesscouncil.com',
         phone: newUser.contact?.phone || '+91 98300 00000',
-        website: 'https://curatedtable.app',
+        website: 'https://bengalbusinesscouncil.com',
         officeAddress: 'Kolkata, West Bengal',
       },
       stats: {

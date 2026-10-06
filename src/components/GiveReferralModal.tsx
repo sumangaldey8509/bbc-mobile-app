@@ -75,7 +75,7 @@ export const GiveReferralModal: React.FC = () => {
             <View style={styles.headerTitleGroup}>
               <View style={styles.badgePill}>
                 <Sparkles color={colors.crimson} size={11} />
-                <Text style={styles.headerBadge}>CURATED TABLE</Text>
+                <Text style={styles.headerBadge}>BENGAL BUSINESS COUNCIL</Text>
               </View>
               <Text style={styles.headerTitle}>Share a Business Referral</Text>
             </View>

@@ -4,7 +4,6 @@ import { Menu, Bell, Search, ShieldCheck, QrCode, Home } from 'lucide-react-nati
 import { useNavigation } from '@react-navigation/native';
 import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
-import { BrandLogo } from './BrandLogo';
 
 interface HeaderProps {
   onSearchPress?: () => void;
@@ -43,7 +42,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchPress, onSearchFocus, sh
             <Menu color={colors.primary} size={22} />
           </TouchableOpacity>
 
-          <BrandLogo size="small" showTagline={true} />
+          <Text style={styles.headerBbcWord}>BBC</Text>
         </View>
 
         <View style={styles.rightActionIcons}>
@@ -148,6 +147,12 @@ const styles = StyleSheet.create({
     marginRight: 10,
     borderWidth: 1,
     borderColor: colors.cardBorder,
+  },
+  headerBbcWord: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: colors.crimson,
+    letterSpacing: 1,
   },
   rightActionIcons: {
     flexDirection: 'row',

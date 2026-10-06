@@ -2,7 +2,7 @@ import { apiRequest } from './apiClient';
 import { User, ProfileDetails } from '../types';
 import { formatTurnover } from './profileApi';
 
-/** Shape of the user object returned by curated-table-be. */
+/** Shape of the user object returned by bbc-backend. */
 export interface BackendUser {
   _id: string;
   firstName: string;
@@ -158,7 +158,7 @@ export function adaptBackendUser(
   const locationStr = [profile?.city, profile?.state].filter(Boolean).join(', ');
   const chapterStr = profile?.city
     ? `${profile.city} Chapter`
-    : locationStr || 'Curated Table Member';
+    : locationStr || 'Bengal Business Council Member';
 
   const turnoverStr =
     profile?.turnover != null
@@ -222,7 +222,7 @@ export function adaptBackendUserWithProfile(user: User, profile: ProfileDetails)
   const locationStr = [profile.city, profile.state].filter(Boolean).join(', ');
   const chapterStr = profile.city
     ? `${profile.city} Chapter`
-    : locationStr || user.chapter || 'Curated Table Member';
+    : locationStr || user.chapter || 'Bengal Business Council Member';
 
   const turnoverStr =
     profile.turnover != null

@@ -8,7 +8,7 @@ import * as SecureStore from 'expo-secure-store';
  * Web falls back to localStorage (SecureStore is unavailable there).
  */
 
-const TOKEN_KEY = 'curated_table_auth_token';
+const TOKEN_KEY = 'bbc_auth_token';
 
 const isWeb = Platform.OS === 'web';
 

@@ -160,7 +160,7 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
         setIsSubmitting(false);
         showToast(
           'success',
-          'Welcome to Curated Table! 🎉',
+          'Welcome to Bengal Business Council! 🎉',
           `Your membership application for ${fullName} has been created.`
         );
       }, 1000);
@@ -421,7 +421,7 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Invite & Council Agreement</Text>
               <Text style={styles.cardSubtitle}>
-                Curated Table connects trusted business leaders and executive founders.
+                BBC connects trusted business leaders and executive founders across Bengal.
               </Text>
 
               {/* Invite Code */}

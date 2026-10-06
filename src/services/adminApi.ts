@@ -3,7 +3,7 @@ import { apiRequest, ApiError } from './apiClient';
 /**
  * Admin-only data access for the Admin Console module.
  *
- * NOTE: curated-table-be currently exposes /api/users and /api/roles without an
+ * NOTE: bbc-backend currently exposes /api/users and /api/roles without an
  * auth guard. `POST /api/users` creates a login-capable member (hashes the
  * password, sends an email verification OTP).
  */

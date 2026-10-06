@@ -54,7 +54,7 @@ export const DigitalBusinessCardModal: React.FC = () => {
   if (!showBusinessCardModal) return null;
 
   // vCard text payload for QR Code
-  const vCardPayload = `BEGIN:VCARD\nVERSION:3.0\nN:${user.name}\nFN:${user.name}\nORG:${user.companyName || ''}\nTITLE:${user.designation || ''}\nTEL:${user.contact?.phone || ''}\nEMAIL:${user.contact?.email || ''}\nURL:${user.contact?.website || ''}\nADR:;;${user.contact?.officeAddress || ''}\nNOTE:Curated Table Member (${user.membershipTier || 'Member'})\nEND:VCARD`;
+  const vCardPayload = `BEGIN:VCARD\nVERSION:3.0\nN:${user.name}\nFN:${user.name}\nORG:${user.companyName || ''}\nTITLE:${user.designation || ''}\nTEL:${user.contact?.phone || ''}\nEMAIL:${user.contact?.email || ''}\nURL:${user.contact?.website || ''}\nADR:;;${user.contact?.officeAddress || ''}\nNOTE:Bengal Business Council Member (${user.membershipTier || 'Member'})\nEND:VCARD`;
 
   const handleCopyVCard = () => {
     Alert.alert(
@@ -66,7 +66,7 @@ export const DigitalBusinessCardModal: React.FC = () => {
   const handleShareCard = () => {
     Alert.alert(
       'Share Digital Card',
-      `Shared link to ${user.name}'s profile: https://curatedtable.app/members/${user.id}`
+      `Shared link to ${user.name}'s profile: https://bengalbusinesscouncil.com/members/${user.id}`
     );
   };
 
@@ -140,10 +140,10 @@ export const DigitalBusinessCardModal: React.FC = () => {
                 <View style={styles.cardTopBanner}>
                   <View style={styles.crestRow}>
                     <View style={styles.crestBadge}>
-                      <Text style={styles.crestBadgeText}>CT</Text>
+                      <Text style={styles.crestBadgeText}>BBC</Text>
                     </View>
                     <View>
-                      <Text style={styles.councilName}>CURATED TABLE</Text>
+                      <Text style={styles.councilName}>BENGAL BUSINESS COUNCIL</Text>
                       <Text style={styles.councilMotto}>Executive Council Member</Text>
                     </View>
                   </View>
@@ -202,7 +202,7 @@ export const DigitalBusinessCardModal: React.FC = () => {
                 {/* Card Footer */}
                 <View style={styles.cardFooter}>
                   <Text style={styles.cardFooterContact}>
-                    {[user.contact?.email, user.contact?.phone].filter(Boolean).join(' • ') || 'Curated Table Verified Member'}
+                    {[user.contact?.email, user.contact?.phone].filter(Boolean).join(' • ') || 'Bengal Business Council Verified Member'}
                   </Text>
                   <Text style={styles.cardFooterSub}>Member Since {user.yearJoined}</Text>
                 </View>

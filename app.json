@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Curated Table",
-    "slug": "curated-table",
+    "name": "BBC - Bengal Business Council",
+    "slug": "bengal-business-council",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,14 +9,14 @@
     "backgroundColor": "#FFFFFF",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.cvs.curatedtable.app"
+      "bundleIdentifier": "com.credovationsolutions.bbc"
     },
     "android": {
-      "package": "com.cvs.curatedtable.app",
+      "package": "com.credovationsolutions.bbc",
       "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
-        "foregroundImage": "./assets/android-icon-foreground.png",
+        "foregroundImage": "./assets/icon.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
@@ -36,7 +36,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Curated Table needs access to your photos so you can set your profile photo and cover image."
+          "photosPermission": "BBC - Bengal Business Council needs access to your photos so you can set your profile photo and cover image."
         }
       ]
     ]

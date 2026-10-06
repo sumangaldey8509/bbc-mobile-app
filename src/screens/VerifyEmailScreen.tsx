@@ -190,7 +190,7 @@ export const VerifyEmailScreen: React.FC<Props> = ({ navigation, route }) => {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.headerSection}>
-              <BrandLogo size="large" centered taglineText="by CredoVation Solutions Pvt Ltd" />
+              <BrandLogo size="large" centered taglineText="by Credovation Solutions Pvt Ltd" />
               <View style={styles.badgePill}>
                 <MailCheck color={colors.crimson} size={13} />
                 <Text style={styles.badgePillText}>EMAIL VERIFICATION</Text>
