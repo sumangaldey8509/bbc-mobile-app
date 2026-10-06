@@ -20,7 +20,10 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -28,7 +31,7 @@
     "owner": "sd1241997",
     "extra": {
       "eas": {
-        "projectId": "4aa28771-69c3-4378-a56c-255c7a50a2c5"
+        "projectId": "56f5a6b8-c91d-4879-a80c-41b0ae0de9a8"
       }
     },
     "plugins": [
@@ -38,7 +41,8 @@
         {
           "photosPermission": "BBC - Bengal Business Council needs access to your photos so you can set your profile photo and cover image."
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }
