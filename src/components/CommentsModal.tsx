@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Alert,
   Platform,
   KeyboardAvoidingView,
+  Animated,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import {
@@ -29,6 +30,7 @@ import {
   ChevronDown,
   ChevronUp,
   ThumbsUp,
+  Sparkles,
 } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
@@ -129,6 +131,7 @@ interface CommentRowProps {
   isBeingEdited: boolean;
   isReply?: boolean;
   isReplyingToThis: boolean;
+  isHighlighted?: boolean;
   activeReplyText: string;
   isSendingReply: boolean;
   currentUserAvatar: string;
@@ -145,6 +148,7 @@ const CommentRow: React.FC<CommentRowProps> = ({
   isBeingEdited,
   isReply = false,
   isReplyingToThis,
+  isHighlighted = false,
   activeReplyText,
   isSendingReply,
   currentUserAvatar,
@@ -158,6 +162,56 @@ const CommentRow: React.FC<CommentRowProps> = ({
   const [hasMoreLines, setHasMoreLines] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
+
+  const focusAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isHighlighted) {
+      Animated.sequence([
+        Animated.timing(focusAnim, {
+          toValue: 1,
+          duration: 350,
+          useNativeDriver: false,
+        }),
+        Animated.timing(focusAnim, {
+          toValue: 0.7,
+          duration: 300,
+          useNativeDriver: false,
+        }),
+        Animated.timing(focusAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    } else {
+      Animated.timing(focusAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [isHighlighted]);
+
+  const animatedBg = focusAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [isReply ? '#FFFFFF' : '#F8FAFC', '#FFF5F5'],
+  });
+
+  const animatedBorderColor = focusAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [isReply ? '#E2E8F0' : '#E9EEF4', '#FCA5A5'],
+  });
+
+  const animatedScale = focusAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [1, 1.012, 1.006],
+  });
+
+  const animatedShadowOpacity = focusAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 0.12],
+  });
 
   const isLengthy =
     comment.text.length > 120 ||
@@ -190,11 +244,21 @@ const CommentRow: React.FC<CommentRowProps> = ({
           source={{ uri: avatarUri }}
           style={[styles.avatar, isReply && styles.replyAvatar]}
         />
-        <View
+        <Animated.View
           style={[
             styles.commentBubble,
             isReply && styles.replyCommentBubble,
             isBeingEdited && styles.commentBubbleEditing,
+            {
+              backgroundColor: animatedBg,
+              borderColor: animatedBorderColor,
+              shadowColor: colors.crimson,
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: animatedShadowOpacity,
+              shadowRadius: 8,
+              elevation: isHighlighted ? 2 : 0,
+              transform: [{ scale: animatedScale }],
+            },
           ]}
         >
           {/* Author Header */}
@@ -308,7 +372,7 @@ const CommentRow: React.FC<CommentRowProps> = ({
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </View>
 
       {/* Inline Reply Input Box (Opens directly underneath this comment) */}
@@ -331,6 +395,7 @@ export const CommentsModal: React.FC = () => {
   const {
     showCommentsModal,
     selectedPostForComments,
+    highlightedCommentId,
     closeComments,
     comments,
     isLoadingComments,
@@ -349,12 +414,64 @@ export const CommentsModal: React.FC = () => {
   const [isSendingInlineReply, setIsSendingInlineReply] = useState(false);
   const [activeCommentMenu, setActiveCommentMenu] = useState<PostComment | null>(null);
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+  const [focusedCommentId, setFocusedCommentId] = useState<string | null>(highlightedCommentId);
 
   const inputRef = useRef<TextInput>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const itemLayouts = useRef<Record<string, number>>({});
+
+  const postId = selectedPostForComments?.id;
+  const postComments = (postId ? comments[postId] : null) || [];
+
+  // Focus & Auto-Scroll when highlightedCommentId is provided
+  useEffect(() => {
+    if (!highlightedCommentId) {
+      setFocusedCommentId(null);
+      return;
+    }
+
+    setFocusedCommentId(highlightedCommentId);
+
+    // Auto-expand thread if highlighted comment is a nested reply
+    if (postComments.length > 0) {
+      const targetReply = postComments.find((c) => c.id === highlightedCommentId);
+      if (targetReply && targetReply.parentCommentId) {
+        setExpandedThreads((prev) => ({
+          ...prev,
+          [targetReply.parentCommentId!]: true,
+        }));
+      }
+    }
+
+    const scrollToTarget = () => {
+      const targetY = itemLayouts.current[highlightedCommentId];
+      if (typeof targetY === 'number' && scrollViewRef.current) {
+        scrollViewRef.current.scrollTo({
+          y: Math.max(0, targetY - 24),
+          animated: true,
+        });
+      }
+    };
+
+    // Staggered scroll attempts to handle modal mount, data load, and thread expansion
+    const t1 = setTimeout(scrollToTarget, 150);
+    const t2 = setTimeout(scrollToTarget, 350);
+    const t3 = setTimeout(scrollToTarget, 650);
+
+    // Clear the temporary highlight focus after 4.5 seconds
+    const clearTimer = setTimeout(() => {
+      setFocusedCommentId(null);
+    }, 4500);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(clearTimer);
+    };
+  }, [highlightedCommentId, postComments.length]);
 
   if (!showCommentsModal || !selectedPostForComments) return null;
-
-  const postComments = comments[selectedPostForComments.id] || [];
 
   // Separate root comments and child replies
   const rootComments = postComments.filter((c) => !c.parentCommentId);
@@ -391,6 +508,11 @@ export const CommentsModal: React.FC = () => {
       if (editingComment) {
         await editComment(selectedPostForComments.id, editingComment.id, trimmed);
         setEditingComment(null);
+      } else if (activeReplyComment) {
+        const parentId = activeReplyComment.parentCommentId || activeReplyComment.id;
+        await addComment(selectedPostForComments.id, trimmed, parentId);
+        setExpandedThreads((prev) => ({ ...prev, [parentId]: true }));
+        setActiveReplyComment(null);
       } else {
         await addComment(selectedPostForComments.id, trimmed);
       }
@@ -581,6 +703,7 @@ export const CommentsModal: React.FC = () => {
             </View>
           ) : (
             <ScrollView
+              ref={scrollViewRef}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.commentsList}
               keyboardShouldPersistTaps="handled"
@@ -608,15 +731,30 @@ export const CommentsModal: React.FC = () => {
                   const childReplies = repliesByParent[rootComment.id] || [];
                   const isThreadExpanded = expandedThreads[rootComment.id] ?? true;
                   const isRootReplying = activeReplyComment?.id === rootComment.id;
+                  const isRootHighlighted = focusedCommentId === rootComment.id;
 
                   return (
-                    <View key={rootComment.id} style={styles.threadGroup}>
+                    <View
+                      key={rootComment.id}
+                      style={styles.threadGroup}
+                      onLayout={(e) => {
+                        const rootY = e.nativeEvent.layout.y;
+                        itemLayouts.current[rootComment.id] = rootY;
+                        if (focusedCommentId === rootComment.id) {
+                          scrollViewRef.current?.scrollTo({
+                            y: Math.max(0, rootY - 24),
+                            animated: true,
+                          });
+                        }
+                      }}
+                    >
                       {/* Parent / Root Comment */}
                       <CommentRow
                         comment={rootComment}
                         isPostAuthor={isPostAuthor}
                         isBeingEdited={isBeingEdited}
                         isReplyingToThis={isRootReplying}
+                        isHighlighted={isRootHighlighted}
                         activeReplyText={inlineReplyText}
                         isSendingReply={isSendingInlineReply}
                         currentUserAvatar={currentUserAvatar}
@@ -663,24 +801,40 @@ export const CommentsModal: React.FC = () => {
 
                                 const isReplyBeingEdited = editingComment?.id === reply.id;
                                 const isChildReplying = activeReplyComment?.id === reply.id;
+                                const isReplyHighlighted = focusedCommentId === reply.id;
 
                                 return (
-                                  <CommentRow
+                                  <View
                                     key={reply.id}
-                                    comment={reply}
-                                    isPostAuthor={isReplyPostAuthor}
-                                    isBeingEdited={isReplyBeingEdited}
-                                    isReply
-                                    isReplyingToThis={isChildReplying}
-                                    activeReplyText={inlineReplyText}
-                                    isSendingReply={isSendingInlineReply}
-                                    currentUserAvatar={currentUserAvatar}
-                                    onOpenMenu={(item) => setActiveCommentMenu(item)}
-                                    onStartReply={(item) => handleStartReply(item)}
-                                    onChangeReplyText={setInlineReplyText}
-                                    onSubmitReply={handleSendInlineReply}
-                                    onCancelReply={handleCancelReply}
-                                  />
+                                    onLayout={(e) => {
+                                      const parentY = itemLayouts.current[rootComment.id] || 0;
+                                      const replyY = parentY + e.nativeEvent.layout.y + 45;
+                                      itemLayouts.current[reply.id] = replyY;
+                                      if (focusedCommentId === reply.id) {
+                                        scrollViewRef.current?.scrollTo({
+                                          y: Math.max(0, replyY - 24),
+                                          animated: true,
+                                        });
+                                      }
+                                    }}
+                                  >
+                                    <CommentRow
+                                      comment={reply}
+                                      isPostAuthor={isReplyPostAuthor}
+                                      isBeingEdited={isReplyBeingEdited}
+                                      isReply
+                                      isReplyingToThis={isChildReplying}
+                                      isHighlighted={isReplyHighlighted}
+                                      activeReplyText={inlineReplyText}
+                                      isSendingReply={isSendingInlineReply}
+                                      currentUserAvatar={currentUserAvatar}
+                                      onOpenMenu={(item) => setActiveCommentMenu(item)}
+                                      onStartReply={(item) => handleStartReply(item)}
+                                      onChangeReplyText={setInlineReplyText}
+                                      onSubmitReply={handleSendInlineReply}
+                                      onCancelReply={handleCancelReply}
+                                    />
+                                  </View>
                                 );
                               })}
                             </View>
@@ -720,6 +874,34 @@ export const CommentsModal: React.FC = () => {
             </View>
           )}
 
+          {/* Active Reply Mode Banner */}
+          {activeReplyComment && !editingComment && (
+            <View style={styles.replyingBanner}>
+              <View style={styles.replyingBannerLeft}>
+                <View style={styles.replyingIconPill}>
+                  <CornerDownRight color={colors.crimson} size={11} />
+                </View>
+                <View style={styles.replyingTextGroup}>
+                  <Text style={styles.replyingBannerTitle}>
+                    Replying to <Text style={styles.replyingBannerRecipient}>@{activeReplyComment.authorName}</Text>
+                  </Text>
+                  <Text style={styles.replyingBannerSnippet} numberOfLines={1}>
+                    "{activeReplyComment.text}"
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.cancelReplyBtn}
+                onPress={handleCancelReply}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                activeOpacity={0.7}
+              >
+                <X color={colors.textSecondary} size={12} />
+                <Text style={styles.cancelReplyText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Slimmer Bottom Composer */}
           <View style={styles.composerBar}>
             <Image source={{ uri: currentUserAvatar }} style={styles.composerAvatar} />
@@ -727,11 +909,13 @@ export const CommentsModal: React.FC = () => {
               ref={inputRef}
               style={[
                 styles.composerInput,
-                editingComment && styles.composerInputEditing,
+                (editingComment || activeReplyComment) && styles.composerInputEditing,
               ]}
               placeholder={
                 editingComment
                   ? 'Update comment...'
+                  : activeReplyComment
+                  ? `Reply to @${activeReplyComment.authorName}...`
                   : 'Add a comment...'
               }
               placeholderTextColor={colors.textMuted}
@@ -1453,6 +1637,63 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     color: colors.textSecondary,
+  },
+  replyingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#FFF5F5',
+    borderTopWidth: 1,
+    borderTopColor: '#FFE5E5',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FFE5E5',
+  },
+  replyingBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    flex: 1,
+  },
+  replyingIconPill: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFEBEB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  replyingTextGroup: {
+    flex: 1,
+  },
+  replyingBannerTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  replyingBannerRecipient: {
+    color: colors.crimson,
+    fontWeight: '800',
+  },
+  replyingBannerSnippet: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  cancelReplyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 5,
+    backgroundColor: '#FFEBEB',
+  },
+  cancelReplyText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.crimson,
   },
   composerBar: {
     flexDirection: 'row',

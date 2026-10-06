@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import {
   User,
   Story,
@@ -50,6 +50,12 @@ import {
   deletePostCommentRequest,
 } from '../services/postApi';
 import { subscribeToFeedRealtime } from '../services/realtimeSubscription';
+import {
+  fetchNotifications,
+  markNotificationReadRequest,
+  markAllNotificationsReadRequest,
+  clearAllNotificationsRequest,
+} from '../services/notificationApi';
 import { ProfileStatus, ProfileCompletion } from '../types';
 import { tokenStorage } from '../utils/tokenStorage';
 
@@ -99,6 +105,7 @@ interface AppContextType {
   showCreatePostModal: boolean;
   showCommentsModal: boolean;
   selectedPostForComments: Post | null;
+  highlightedCommentId: string | null;
   showRequestAdminAccessModal: boolean;
   selectedUserForAdminAccess: User | null;
   showNotificationsModal: boolean;
@@ -139,7 +146,9 @@ interface AppContextType {
   sendMessage: (threadId: string, text: string) => void;
   requestAdminContactAccess: (userId: string, reason: string) => void;
   markNotificationRead: (notifId: string) => void;
+  markAllNotificationsRead: () => void;
   clearAllNotifications: () => void;
+  refreshNotifications: () => Promise<void>;
   
   // Modal Handlers
   openStory: (story: Story) => void;
@@ -156,7 +165,7 @@ interface AppContextType {
   openCreatePost: () => void;
   openEditPostModal: (post: Post) => void;
   closeCreatePost: () => void;
-  openComments: (post: Post) => void;
+  openComments: (post: Post, commentIdToHighlight?: string | null) => void;
   closeComments: () => void;
   openRequestAdminAccess: (user: User) => void;
   closeRequestAdminAccess: () => void;
@@ -210,6 +219,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   const [selectedPostForComments, setSelectedPostForComments] = useState<Post | null>(null);
+  const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
   const [showRequestAdminAccessModal, setShowRequestAdminAccessModal] = useState(false);
   const [selectedUserForAdminAccess, setSelectedUserForAdminAccess] = useState<User | null>(null);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
@@ -240,6 +250,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // Keep existing posts if backend is offline
     }
   };
+
+  /** Fetch notifications from the backend. */
+  const refreshNotifications = async () => {
+    try {
+      const res = await fetchNotifications({ page: 1, limit: 30 });
+      if (res && Array.isArray(res.items)) {
+        setNotifications(res.items);
+      }
+    } catch {
+      // Keep existing notifications
+    }
+  };
+
+  const currentUserRef = useRef<User>(currentUser);
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
   /** Fetch the profile-details gate state and full profile for the signed-in member. */
   const refreshProfileStatus = async () => {
@@ -295,6 +322,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsAuthenticated(true);
         void refreshMembers();
         void refreshPosts();
+        void refreshNotifications();
       } catch {
         // Token invalid / expired / server unreachable — drop it and show login.
         await tokenStorage.clear();
@@ -453,6 +481,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           )
         );
       },
+      onNewNotification: (incomingNotif) => {
+        console.log('[AppContext] Received live new_notification:', incomingNotif.id, incomingNotif.title);
+        const myId = currentUserRef.current?.id;
+        if (myId && String(incomingNotif.recipientId) === String(myId)) {
+          setNotifications(prev => [incomingNotif, ...prev.filter(n => n.id !== incomingNotif.id)]);
+        }
+      },
     });
 
     return () => {
@@ -487,6 +522,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsAuthenticated(true);
     void refreshMembers();
     void refreshPosts();
+    void refreshNotifications();
   };
 
   const logout = () => {
@@ -1071,8 +1107,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setEditingPost(null);
   };
 
-  const openComments = async (post: Post) => {
+  const openComments = async (post: Post, commentIdToHighlight?: string | null) => {
     setSelectedPostForComments(post);
+    setHighlightedCommentId(commentIdToHighlight || null);
     setShowCommentsModal(true);
     setIsLoadingComments(true);
     try {
@@ -1092,6 +1129,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const closeComments = () => {
     setShowCommentsModal(false);
     setSelectedPostForComments(null);
+    setHighlightedCommentId(null);
   };
 
   const openRequestAdminAccess = (user: User) => {
@@ -1103,17 +1141,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setSelectedUserForAdminAccess(null);
   };
 
-  const openNotifications = () => setShowNotificationsModal(true);
+  const openNotifications = () => {
+    setShowNotificationsModal(true);
+    void refreshNotifications();
+  };
   const closeNotifications = () => setShowNotificationsModal(false);
 
   const markNotificationRead = (notifId: string) => {
     setNotifications(prev =>
       prev.map(n => (n.id === notifId ? { ...n, read: true } : n))
     );
+    void markNotificationReadRequest(notifId).catch(err => {
+      console.warn('[markNotificationRead] failed on backend:', err);
+    });
+  };
+
+  const markAllNotificationsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    void markAllNotificationsReadRequest().catch(err => {
+      console.warn('[markAllNotificationsRead] failed on backend:', err);
+    });
   };
 
   const clearAllNotifications = () => {
     setNotifications([]);
+    void clearAllNotificationsRequest().catch(err => {
+      console.warn('[clearAllNotifications] failed on backend:', err);
+    });
   };
 
   const openDrawer = () => setShowDrawer(true);
@@ -1147,6 +1201,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         isProfileApproved,
         refreshProfileStatus,
         refreshMembers,
+        refreshPosts,
+        refreshNotifications,
+        markAllNotificationsRead,
 
         activeStory,
         showStoryViewer,
@@ -1161,6 +1218,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         editingPost,
         showCommentsModal,
         selectedPostForComments,
+        highlightedCommentId,
         showRequestAdminAccessModal,
         selectedUserForAdminAccess,
         showNotificationsModal,
@@ -1179,7 +1237,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         createPost,
         editPost,
         deletePost,
-        refreshPosts,
         logOneToOne,
         markMeetingCompleted,
         giveReferral,

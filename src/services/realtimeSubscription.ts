@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { Post, PostComment } from '../types';
+import { Post, PostComment, AppNotification } from '../types';
 
 export interface FeedRealtimeHandlers {
   onNewPost: (post: Post) => void;
@@ -9,6 +9,7 @@ export interface FeedRealtimeHandlers {
   onNewComment?: (comment: PostComment) => void;
   onUpdateComment?: (comment: PostComment) => void;
   onDeleteComment?: (payload: { postId: string; commentId: string; deletedCommentId?: string; commentsCount?: number }) => void;
+  onNewNotification?: (notification: AppNotification) => void;
 }
 
 /**
@@ -89,6 +90,28 @@ export function subscribeToFeedRealtime(handlers: FeedRealtimeHandlers): () => v
       console.log('[Supabase Realtime] Received "delete_comment" broadcast:', payload);
       if (payload && handlers.onDeleteComment) {
         handlers.onDeleteComment(payload);
+      }
+    })
+    .on('broadcast', { event: 'new_notification' }, ({ payload }) => {
+      console.log('[Supabase Realtime] Received "new_notification" broadcast:', payload);
+      if (payload && (payload.id || payload._id) && handlers.onNewNotification) {
+        const notif: AppNotification = {
+          ...payload,
+          id: String(payload.id || payload._id),
+          recipientId: String(payload.recipientId),
+          senderId: String(payload.senderId),
+          senderName: payload.senderName || 'BBC Member',
+          senderAvatar: payload.senderAvatar || '',
+          senderCompany: payload.senderCompany,
+          title: payload.title || 'Notification',
+          message: payload.message || '',
+          type: payload.type || 'general',
+          timestamp: payload.timestamp || 'Just now',
+          read: Boolean(payload.read),
+          postId: payload.postId ? String(payload.postId) : undefined,
+          commentId: payload.commentId ? String(payload.commentId) : undefined,
+        };
+        handlers.onNewNotification(notif);
       }
     })
     .subscribe((status, err) => {

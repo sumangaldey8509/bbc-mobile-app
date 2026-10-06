@@ -86,7 +86,11 @@ export const Header: React.FC<HeaderProps> = ({ onSearchPress, onSearchFocus, sh
             accessibilityLabel="Notifications"
           >
             <Bell color={colors.textSecondary} size={19} />
-            {unreadCount > 0 && <View style={styles.badgeDot} />}
+            {unreadCount > 0 && (
+              <View style={styles.badgeBadge}>
+                <Text style={styles.badgeBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -180,6 +184,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.crimson,
     borderWidth: 1,
     borderColor: colors.white,
+  },
+  badgeBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: colors.crimson,
+    borderRadius: 8,
+    minWidth: 15,
+    height: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: colors.cardBg,
+  },
+  badgeBadgeText: {
+    color: colors.white,
+    fontSize: 8.5,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   memberGreetingRow: {
     flexDirection: 'row',
