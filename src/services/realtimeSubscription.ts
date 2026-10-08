@@ -127,4 +127,25 @@ export function subscribeToFeedRealtime(handlers: FeedRealtimeHandlers): () => v
   };
 }
 
+/** Subscribe to the signed-in member's RLS-protected private messaging topic. */
+export async function subscribeToPrivateMessageRealtime(
+  token: string,
+  topic: string,
+  onChanged: () => void
+): Promise<() => void> {
+  await supabase.realtime.setAuth(token);
+  const channel = supabase.channel(topic, { config: { private: true } });
+
+  channel
+    .on('broadcast', { event: 'changed' }, () => onChanged())
+    .subscribe((status, err) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.warn('[Supabase Realtime] Private messaging channel error:', err || status);
+      }
+    });
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}
 

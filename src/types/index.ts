@@ -272,6 +272,10 @@ export interface Message {
   senderId: string;
   text: string;
   timestamp: string;
+  createdAt?: string;
+  deliveredAt?: string | null;
+  seenAt?: string | null;
+  receiptStatus: 'sent' | 'delivered' | 'seen';
   isMe: boolean;
 }
 
@@ -280,5 +284,6 @@ export interface MessageThread {
   participant: User;
   lastMessage: string;
   lastMessageTime: string;
+  lastMessageAt?: string;
   unreadCount: number;
 }

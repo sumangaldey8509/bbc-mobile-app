@@ -882,6 +882,7 @@ export const MOCK_MESSAGES: Record<string, Message[]> = {
       senderId: 'user_1',
       text: 'Hi Subrata! Saw your response on my cleanroom expansion post.',
       timestamp: '10:30 AM',
+      receiptStatus: 'seen',
       isMe: false
     },
     {
@@ -890,6 +891,7 @@ export const MOCK_MESSAGES: Record<string, Message[]> = {
       senderId: 'user_me',
       text: 'Yes Ananya! We have completed two similar ISO Class-10,000 cleanroom HVAC ducting systems in Howrah. We can definitely support your New Town project.',
       timestamp: '10:35 AM',
+      receiptStatus: 'seen',
       isMe: true
     },
     {
@@ -898,6 +900,7 @@ export const MOCK_MESSAGES: Record<string, Message[]> = {
       senderId: 'user_1',
       text: 'That is wonderful. Can we do our scheduled 1-to-1 tomorrow at 4 PM?',
       timestamp: '10:42 AM',
+      receiptStatus: 'seen',
       isMe: false
     },
     {
@@ -906,6 +909,7 @@ export const MOCK_MESSAGES: Record<string, Message[]> = {
       senderId: 'user_1',
       text: 'Let’s meet tomorrow at 4 PM to finalize the AHU specs.',
       timestamp: '10:45 AM',
+      receiptStatus: 'seen',
       isMe: false
     }
   ]

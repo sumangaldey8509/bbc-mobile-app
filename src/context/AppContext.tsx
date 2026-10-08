@@ -1030,6 +1030,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       senderId: currentUser.id,
       text: text.trim(),
       timestamp: 'Just now',
+      receiptStatus: 'sent',
       isMe: true,
     };
 

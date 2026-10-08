@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   Platform,
   RefreshControl,
   ActivityIndicator,
+  Alert,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -21,57 +23,194 @@ import {
   QrCode,
   ShieldCheck,
   Building2,
-  Lock,
+  UserPlus,
+  X,
+  Search,
+  Check,
+  CheckCheck,
 } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
 import { Header } from '../components/Header';
 import { MessageThread } from '../types';
 import { MessagesScreenSkeleton } from '../components/SkeletonLoader';
+import {
+  fetchMessageThreadsRequest,
+  createMessageThreadRequest,
+  fetchThreadMessagesRequest,
+  sendThreadMessageRequest,
+  markThreadReadRequest,
+  fetchMessageRealtimeTokenRequest,
+  markMessagesDeliveredRequest,
+} from '../services/messageApi';
+import { subscribeToPrivateMessageRealtime } from '../services/realtimeSubscription';
 
 export const MessagesScreen: React.FC = () => {
   const {
-    messageThreads,
-    messages,
-    sendMessage,
+    users,
+    currentUser,
     openLogOneToOne,
     openRecordDeal,
     openDigitalBusinessCard,
   } = useApp();
 
+  const [messageThreads, setMessageThreads] = useState<MessageThread[]>([]);
+  const [messages, setMessages] = useState<Record<string, import('../types').Message[]>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [activeThread, setActiveThread] = useState<MessageThread | null>(null);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showMemberPicker, setShowMemberPicker] = useState(false);
+  const [memberQuery, setMemberQuery] = useState('');
+  const [startingMemberId, setStartingMemberId] = useState<string | null>(null);
+  const [pickerError, setPickerError] = useState('');
+  const messagesRef = useRef<ScrollView>(null);
+  const activeThreadRef = useRef<MessageThread | null>(null);
+
+  const loadThreads = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true);
+    try {
+      setMessageThreads(await fetchMessageThreadsRequest());
+    } catch (error) {
+      if (!silent) Alert.alert('Could not load messages', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      if (!silent) setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    // Simulate backend encrypted chat channel load
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 850);
-    return () => clearTimeout(timer);
-  }, []);
+    void loadThreads();
+  }, [loadThreads]);
 
   const currentMessages = activeThread ? (messages[activeThread.id] || []) : [];
 
-  const handleRefresh = () => {
+  const loadConversation = useCallback(async (thread: MessageThread, silent = false) => {
+    if (!silent) setIsLoadingConversation(true);
+    try {
+      const response = await fetchThreadMessagesRequest(thread.id);
+      setMessages(prev => ({ ...prev, [thread.id]: response.items }));
+      try {
+        await markThreadReadRequest(thread.id);
+        setMessageThreads(prev => prev.map(item => item.id === thread.id ? { ...item, unreadCount: 0 } : item));
+      } catch (receiptError) {
+        console.warn('[Messages] Could not mark conversation as seen:', receiptError);
+      }
+    } catch (error) {
+      if (!silent) Alert.alert('Could not load conversation', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      if (!silent) setIsLoadingConversation(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!activeThread) return;
+    void loadConversation(activeThread);
+  }, [activeThread, loadConversation]);
+
+  useEffect(() => {
+    activeThreadRef.current = activeThread;
+  }, [activeThread]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unsubscribe: (() => void) | undefined;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const connect = async () => {
+      unsubscribe?.();
+      const session = await fetchMessageRealtimeTokenRequest();
+      if (disposed) return;
+      unsubscribe = await subscribeToPrivateMessageRealtime(
+        session.token,
+        session.topic,
+        () => {
+          void markMessagesDeliveredRequest().catch((receiptError) => {
+            console.warn('[Messages] Could not acknowledge delivery:', receiptError);
+          });
+          void loadThreads(true);
+          const openThread = activeThreadRef.current;
+          if (openThread) void loadConversation(openThread, true);
+        }
+      );
+      void markMessagesDeliveredRequest().catch((receiptError) => {
+        console.warn('[Messages] Could not acknowledge initial delivery:', receiptError);
+      });
+      refreshTimer = setTimeout(() => void connect(), Math.max(60, session.expiresInSeconds - 120) * 1000);
+    };
+
+    void connect().catch((error) => {
+      console.warn('[Messages] Realtime connection failed:', error);
+    });
+
+    return () => {
+      disposed = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      unsubscribe?.();
+    };
+  }, [loadConversation, loadThreads]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => messagesRef.current?.scrollToEnd({ animated: true }), 50);
+    return () => clearTimeout(timer);
+  }, [currentMessages.length, activeThread?.id]);
+
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 850);
+    await loadThreads(true);
+    setIsRefreshing(false);
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!activeThread || !inputText.trim() || isSending) return;
     const text = inputText.trim();
     setInputText('');
     setIsSending(true);
-    setTimeout(() => {
-      sendMessage(activeThread.id, text);
+    try {
+      const sent = await sendThreadMessageRequest(activeThread.id, text);
+      setMessages(prev => ({ ...prev, [activeThread.id]: [...(prev[activeThread.id] || []), sent] }));
+      setMessageThreads(prev => prev.map(thread =>
+        thread.id === activeThread.id
+          ? { ...thread, lastMessage: sent.text, lastMessageTime: sent.timestamp }
+          : thread
+      ));
+    } catch (error) {
+      setInputText(text);
+      Alert.alert('Message not sent', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
       setIsSending(false);
-    }, 450);
+    }
   };
+
+  const openThread = (thread: MessageThread) => {
+    setActiveThread(thread);
+  };
+
+  const startConversation = async (participantId: string) => {
+    if (startingMemberId) return;
+    setStartingMemberId(participantId);
+    setPickerError('');
+    try {
+      const thread = await createMessageThreadRequest(participantId);
+      setMessageThreads(prev => [thread, ...prev.filter(item => item.id !== thread.id)]);
+      setShowMemberPicker(false);
+      setMemberQuery('');
+      setActiveThread(thread);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Please try again.';
+      setPickerError(message);
+      if (Platform.OS !== 'web') Alert.alert('Could not start conversation', message);
+    } finally {
+      setStartingMemberId(null);
+    }
+  };
+
+  const availableMembers = users.filter(user => {
+    if (user.id === currentUser.id) return false;
+    const haystack = `${user.name} ${user.companyName} ${user.designation}`.toLowerCase();
+    return haystack.includes(memberQuery.trim().toLowerCase());
+  });
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -86,9 +225,18 @@ export const MessagesScreen: React.FC = () => {
                 <Text style={styles.threadsBadge}>COUNCIL DIRECT CONNECT</Text>
                 <Text style={styles.threadsTitle}>Executive Messages</Text>
               </View>
-              <View style={styles.securePill}>
-                <ShieldCheck color={colors.emerald} size={13} />
-                <Text style={styles.securePillText}>Encrypted Peer-to-Peer</Text>
+              <View style={styles.headerActions}>
+                <View style={styles.securePill}>
+                  <ShieldCheck color={colors.emerald} size={13} />
+                  <Text style={styles.securePillText}>Private</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.newChatButton}
+                  onPress={() => setShowMemberPicker(true)}
+                  accessibilityLabel="Start a new conversation"
+                >
+                  <UserPlus color={colors.white} size={16} />
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -110,11 +258,23 @@ export const MessagesScreen: React.FC = () => {
                   />
                 }
               >
+              {messageThreads.length === 0 && (
+                <View style={styles.emptyState}>
+                  <View style={styles.emptyIcon}>
+                    <UserPlus color={colors.crimson} size={24} />
+                  </View>
+                  <Text style={styles.emptyTitle}>Start your first conversation</Text>
+                  <Text style={styles.emptyText}>Connect privately with a verified council member.</Text>
+                  <TouchableOpacity style={styles.emptyButton} onPress={() => setShowMemberPicker(true)}>
+                    <Text style={styles.emptyButtonText}>Choose a member</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               {messageThreads.map(thread => (
                 <TouchableOpacity
                   key={thread.id}
                   style={styles.threadItem}
-                  onPress={() => setActiveThread(thread)}
+                  onPress={() => openThread(thread)}
                   activeOpacity={0.7}
                 >
                   <View style={styles.avatarWrapper}>
@@ -198,8 +358,18 @@ export const MessagesScreen: React.FC = () => {
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.messagesList}
-            ref={ref => ref?.scrollToEnd({ animated: true })}
+            ref={messagesRef}
           >
+            {isLoadingConversation && (
+              <ActivityIndicator color={colors.crimson} style={styles.conversationLoader} />
+            )}
+            {!isLoadingConversation && currentMessages.length === 0 && (
+              <View style={styles.emptyConversation}>
+                <ShieldCheck color={colors.emerald} size={22} />
+                <Text style={styles.emptyConversationTitle}>Private member conversation</Text>
+                <Text style={styles.emptyConversationText}>Messages are visible only to the two participants.</Text>
+              </View>
+            )}
             {currentMessages.map(msg => (
               <View
                 key={msg.id}
@@ -217,9 +387,22 @@ export const MessagesScreen: React.FC = () => {
                   <Text style={[styles.messageText, msg.isMe ? styles.myMessageText : styles.otherMessageText]}>
                     {msg.text}
                   </Text>
-                  <Text style={[styles.msgTimestamp, msg.isMe ? styles.myTimestamp : styles.otherTimestamp]}>
-                    {msg.timestamp}
-                  </Text>
+                  <View style={styles.messageMeta}>
+                    <Text style={[styles.msgTimestamp, msg.isMe ? styles.myTimestamp : styles.otherTimestamp]}>
+                      {msg.timestamp}
+                    </Text>
+                    {msg.isMe && (
+                      msg.receiptStatus === 'sent' ? (
+                        <Check size={13} strokeWidth={2.2} color="rgba(255, 255, 255, 0.72)" />
+                      ) : (
+                        <CheckCheck
+                          size={14}
+                          strokeWidth={2.2}
+                          color={msg.receiptStatus === 'seen' ? '#8DE8FF' : 'rgba(255, 255, 255, 0.82)'}
+                        />
+                      )
+                    )}
+                  </View>
                 </View>
               </View>
             ))}
@@ -249,6 +432,69 @@ export const MessagesScreen: React.FC = () => {
           </View>
         </KeyboardAvoidingView>
       )}
+
+      <Modal
+        visible={showMemberPicker}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowMemberPicker(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <SafeAreaView style={styles.memberPicker} edges={['top', 'left', 'right', 'bottom']}>
+            <View style={styles.memberPickerHeader}>
+              <View>
+                <Text style={styles.memberPickerEyebrow}>NEW MESSAGE</Text>
+                <Text style={styles.memberPickerTitle}>Choose a member</Text>
+              </View>
+              <TouchableOpacity style={styles.closeButton} onPress={() => setShowMemberPicker(false)}>
+                <X color={colors.textPrimary} size={20} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.memberSearch}>
+              <Search color={colors.textMuted} size={17} />
+              <TextInput
+                style={styles.memberSearchInput}
+                value={memberQuery}
+                onChangeText={setMemberQuery}
+                placeholder="Search by member, company or role"
+                placeholderTextColor={colors.textMuted}
+                autoFocus
+              />
+            </View>
+            {!!pickerError && (
+              <View style={styles.pickerError}>
+                <Text style={styles.pickerErrorText}>{pickerError}</Text>
+              </View>
+            )}
+            <ScrollView contentContainerStyle={styles.memberList} keyboardShouldPersistTaps="handled">
+              {availableMembers.map(member => (
+                <TouchableOpacity
+                  key={member.id}
+                  style={[styles.memberRow, startingMemberId === member.id && styles.memberRowLoading]}
+                  onPress={() => void startConversation(member.id)}
+                  disabled={startingMemberId !== null}
+                >
+                  <Image source={{ uri: member.avatar }} style={styles.memberAvatar} />
+                  <View style={styles.memberInfo}>
+                    <Text style={styles.memberName}>{member.name}</Text>
+                    <Text style={styles.memberCompany} numberOfLines={1}>
+                      {member.designation}{member.companyName ? ` · ${member.companyName}` : ''}
+                    </Text>
+                  </View>
+                  {startingMemberId === member.id ? (
+                    <ActivityIndicator size="small" color={colors.crimson} />
+                  ) : (
+                    <Send color={colors.crimson} size={17} />
+                  )}
+                </TouchableOpacity>
+              ))}
+              {availableMembers.length === 0 && (
+                <Text style={styles.noMembersText}>No matching members found.</Text>
+              )}
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -285,6 +531,11 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginTop: 2,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   securePill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -298,6 +549,14 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: colors.emerald,
+  },
+  newChatButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: colors.crimson,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   threadsList: {
     padding: 16,
@@ -315,6 +574,44 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
     shadowRadius: 3,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 56,
+    paddingHorizontal: 28,
+  },
+  emptyIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    backgroundColor: colors.crimsonLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  emptyText: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  emptyButton: {
+    marginTop: 18,
+    backgroundColor: colors.crimson,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  emptyButtonText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '800',
   },
   avatarWrapper: {
     position: 'relative',
@@ -434,6 +731,29 @@ const styles = StyleSheet.create({
     gap: 10,
     flexGrow: 1,
   },
+  conversationLoader: {
+    marginTop: 32,
+  },
+  emptyConversation: {
+    flex: 1,
+    minHeight: 300,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 36,
+  },
+  emptyConversationTitle: {
+    marginTop: 10,
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  emptyConversationText: {
+    marginTop: 5,
+    fontSize: 11.5,
+    lineHeight: 17,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
   messageBubbleWrapper: {
     flexDirection: 'row',
     marginBottom: 4,
@@ -475,8 +795,13 @@ const styles = StyleSheet.create({
   },
   msgTimestamp: {
     fontSize: 9.5,
+  },
+  messageMeta: {
     marginTop: 4,
     alignSelf: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
   },
   myTimestamp: {
     color: 'rgba(255, 255, 255, 0.75)',
@@ -515,5 +840,121 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: {
     opacity: 0.4,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(11, 25, 44, 0.45)',
+    justifyContent: 'flex-end',
+  },
+  memberPicker: {
+    maxHeight: '82%',
+    backgroundColor: colors.cardBg,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+  },
+  memberPickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 12,
+  },
+  memberPickerEyebrow: {
+    fontSize: 9.5,
+    letterSpacing: 1,
+    color: colors.crimson,
+    fontWeight: '900',
+  },
+  memberPickerTitle: {
+    marginTop: 2,
+    fontSize: 20,
+    color: colors.textPrimary,
+    fontWeight: '800',
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.cardBgElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  memberSearch: {
+    marginHorizontal: 18,
+    marginBottom: 10,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.inputBorder,
+    backgroundColor: colors.cardBgElevated,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  memberSearchInput: {
+    flex: 1,
+    color: colors.textPrimary,
+    fontSize: 13,
+  },
+  memberList: {
+    paddingHorizontal: 18,
+    paddingBottom: 24,
+  },
+  pickerError: {
+    marginHorizontal: 18,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: colors.crimsonLight,
+    borderWidth: 1,
+    borderColor: colors.crimsonBorder,
+  },
+  pickerErrorText: {
+    color: colors.crimsonDark,
+    fontSize: 11.5,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  memberRow: {
+    minHeight: 66,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.cardBorder,
+    gap: 11,
+  },
+  memberRowLoading: {
+    opacity: 0.65,
+  },
+  memberAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.cardBgElevated,
+  },
+  memberInfo: {
+    flex: 1,
+  },
+  memberName: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  memberCompany: {
+    marginTop: 3,
+    fontSize: 11,
+    color: colors.textSecondary,
+  },
+  noMembersText: {
+    textAlign: 'center',
+    paddingVertical: 36,
+    fontSize: 13,
+    color: colors.textMuted,
   },
 });
