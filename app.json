@@ -2,7 +2,7 @@
   "expo": {
     "name": "BBC - Bengal Business Council",
     "slug": "bengal-business-council",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,7 +13,8 @@
     },
     "android": {
       "package": "com.credovationsolutions.bbc",
-      "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/icon.png",
@@ -42,7 +43,14 @@
           "photosPermission": "BBC - Bengal Business Council needs access to your photos so you can set your profile photo and cover image."
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "color": "#D9272E",
+          "defaultChannel": "messages"
+        }
+      ]
     ]
   }
 }

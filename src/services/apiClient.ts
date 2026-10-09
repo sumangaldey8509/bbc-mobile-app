@@ -72,10 +72,16 @@ export async function apiRequest<T = unknown>(
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new ApiError('The request timed out. Please try again.', 0);
+      throw new ApiError(
+        `The request to ${API_BASE_URL} timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
+        0
+      );
     }
+    const nativeMessage = err instanceof Error
+      ? `${err.name}: ${err.message}`
+      : String(err);
     throw new ApiError(
-      'Could not reach the server. Check your connection and try again.',
+      `Could not reach ${API_BASE_URL}. Native error: ${nativeMessage}`,
       0
     );
   }
@@ -150,4 +156,3 @@ export function uploadWithProgress<T = unknown>(
     xhr.send(formData);
   });
 }
-

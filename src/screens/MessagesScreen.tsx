@@ -15,6 +15,7 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRoute } from '@react-navigation/native';
 import {
   Send,
   ArrowLeft,
@@ -68,6 +69,8 @@ export const MessagesScreen: React.FC = () => {
   const [pickerError, setPickerError] = useState('');
   const messagesRef = useRef<ScrollView>(null);
   const activeThreadRef = useRef<MessageThread | null>(null);
+  const openedNotificationThreadRef = useRef<string | null>(null);
+  const route = useRoute<any>();
 
   const loadThreads = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
@@ -83,6 +86,16 @@ export const MessagesScreen: React.FC = () => {
   useEffect(() => {
     void loadThreads();
   }, [loadThreads]);
+
+  useEffect(() => {
+    const requestedThreadId = route.params?.threadId;
+    if (!requestedThreadId || openedNotificationThreadRef.current === requestedThreadId) return;
+    const requestedThread = messageThreads.find((thread) => thread.id === requestedThreadId);
+    if (requestedThread) {
+      openedNotificationThreadRef.current = requestedThreadId;
+      setActiveThread(requestedThread);
+    }
+  }, [messageThreads, route.params?.threadId]);
 
   const currentMessages = activeThread ? (messages[activeThread.id] || []) : [];
 

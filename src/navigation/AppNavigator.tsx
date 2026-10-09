@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -22,6 +22,11 @@ import { VerifyEmailScreen } from '../screens/VerifyEmailScreen';
 import { ProfileSetupScreen } from '../screens/ProfileSetupScreen';
 import { CustomSplashScreen } from '../screens/CustomSplashScreen';
 import { AdminConsoleScreen } from '../screens/admin/AdminConsoleScreen';
+import {
+  Notifications,
+  getMessageThreadIdFromNotification,
+  registerAndroidPushNotifications,
+} from '../services/pushNotifications';
 
 import { StoryViewerModal } from '../components/StoryViewerModal';
 import { DigitalBusinessCardModal } from '../components/DigitalBusinessCardModal';
@@ -96,6 +101,35 @@ const MainTabs = () => {
 export const AppNavigator: React.FC = () => {
   const { isAuthenticated, isBootstrappingAuth, isAdmin, isProfileApproved } = useApp();
   const [isSplashVisible, setIsSplashVisible] = useState(true);
+  const [navigationReady, setNavigationReady] = useState(false);
+  const [pendingMessageThreadId, setPendingMessageThreadId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !isProfileApproved) return;
+    void registerAndroidPushNotifications().catch((error) => {
+      console.warn('[Push] Android push registration failed:', error);
+    });
+  }, [isAuthenticated, isProfileApproved]);
+
+  useEffect(() => {
+    const handleResponse = (response: Notifications.NotificationResponse | null) => {
+      const threadId = getMessageThreadIdFromNotification(response);
+      if (threadId) setPendingMessageThreadId(threadId);
+    };
+    handleResponse(Notifications.getLastNotificationResponse());
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!pendingMessageThreadId || !navigationReady || !isAuthenticated || !isProfileApproved) return;
+    (navigationRef.navigate as any)('MainTabs', {
+      screen: 'Messages',
+      params: { threadId: pendingMessageThreadId },
+    });
+    setPendingMessageThreadId(null);
+    Notifications.clearLastNotificationResponse();
+  }, [pendingMessageThreadId, navigationReady, isAuthenticated, isProfileApproved]);
 
   const handleDrawerNavigate = (screenName: string) => {
     if (navigationRef.isReady()) {
@@ -112,7 +146,7 @@ export const AppNavigator: React.FC = () => {
   }
 
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer ref={navigationRef} onReady={() => setNavigationReady(true)}>
       <View style={styles.rootContainer}>
         <Stack.Navigator
           screenOptions={{

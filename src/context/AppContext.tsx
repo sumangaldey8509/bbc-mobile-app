@@ -58,6 +58,7 @@ import {
 } from '../services/notificationApi';
 import { ProfileStatus, ProfileCompletion } from '../types';
 import { tokenStorage } from '../utils/tokenStorage';
+import { unregisterCurrentPushToken } from '../services/pushNotifications';
 
 interface AppContextType {
   currentUser: User;
@@ -529,7 +530,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setIsAuthenticated(false);
     setProfileStatus(null);
     setProfileCompletion(null);
-    void tokenStorage.clear();
+    void unregisterCurrentPushToken()
+      .catch((error) => console.warn('[Push] Could not unregister device:', error))
+      .finally(() => void tokenStorage.clear());
   };
 
   const switchUser = (userId: string) => {

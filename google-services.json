@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "710555854253",
+    "project_id": "bbc-mobile-app-1422a",
+    "storage_bucket": "bbc-mobile-app-1422a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:710555854253:android:61084279912813843a6d24",
+        "android_client_info": {
+          "package_name": "com.credovationsolutions.bbc"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyChUBzswRSaZZGc_PXQd5Aku4FDcMurjik"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
