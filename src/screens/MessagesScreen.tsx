@@ -41,10 +41,20 @@ import {
   fetchThreadMessagesRequest,
   sendThreadMessageRequest,
   markThreadReadRequest,
-  fetchMessageRealtimeTokenRequest,
   markMessagesDeliveredRequest,
 } from '../services/messageApi';
-import { subscribeToPrivateMessageRealtime } from '../services/realtimeSubscription';
+import { subscribeToFeedRealtime } from '../services/realtimeSubscription';
+
+const formatTime = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  return date.toLocaleDateString([], { day: '2-digit', month: 'short' });
+};
 
 export const MessagesScreen: React.FC = () => {
   const {
@@ -126,43 +136,141 @@ export const MessagesScreen: React.FC = () => {
     activeThreadRef.current = activeThread;
   }, [activeThread]);
 
+  // Acknowledge delivery of any pending messages when Messages screen mounts
   useEffect(() => {
-    let disposed = false;
-    let unsubscribe: (() => void) | undefined;
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    void markMessagesDeliveredRequest().catch((receiptError) => {
+      console.warn('[Messages] Could not acknowledge initial delivery:', receiptError);
+    });
+  }, []);
 
-    const connect = async () => {
-      unsubscribe?.();
-      const session = await fetchMessageRealtimeTokenRequest();
-      if (disposed) return;
-      unsubscribe = await subscribeToPrivateMessageRealtime(
-        session.token,
-        session.topic,
-        () => {
-          void markMessagesDeliveredRequest().catch((receiptError) => {
-            console.warn('[Messages] Could not acknowledge delivery:', receiptError);
+  // Realtime subscription for instant message delivery and read receipts
+  useEffect(() => {
+    const unsubscribe = subscribeToFeedRealtime({
+      onNewMessage: (payload) => {
+        const myId = currentUser?.id;
+        if (!myId) return;
+        const isParticipant = (payload.participants || []).some(
+          (p) => String(p) === String(myId)
+        );
+        if (!isParticipant) return;
+
+        const isMe = String(payload.senderId) === String(myId);
+        const incomingMsg: import('../types').Message = {
+          ...payload.message,
+          isMe,
+        };
+
+        // 1. Update message list in state for this thread
+        setMessages((prev) => {
+          const currentThreadMessages = prev[payload.threadId] || [];
+          const exists = currentThreadMessages.some((m) => m.id === incomingMsg.id);
+          if (exists) {
+            return {
+              ...prev,
+              [payload.threadId]: currentThreadMessages.map((m) =>
+                m.id === incomingMsg.id ? incomingMsg : m
+              ),
+            };
+          }
+          return {
+            ...prev,
+            [payload.threadId]: [...currentThreadMessages, incomingMsg],
+          };
+        });
+
+        // 2. Update thread list (update preview, move conversation to top, update unread count)
+        const openThread = activeThreadRef.current;
+        const isCurrentActive = openThread && String(openThread.id) === String(payload.threadId);
+
+        setMessageThreads((prev) => {
+          const threadIndex = prev.findIndex((t) => String(t.id) === String(payload.threadId));
+          if (threadIndex === -1) {
+            // New thread we don't have yet in state, fetch threads silently
+            void loadThreads(true);
+            return prev;
+          }
+
+          const existingThread = prev[threadIndex];
+          const updatedThread: MessageThread = {
+            ...existingThread,
+            lastMessage: payload.lastMessage,
+            lastMessageAt: payload.lastMessageAt,
+            lastMessageTime: formatTime(payload.lastMessageAt),
+            unreadCount: isCurrentActive || isMe ? 0 : existingThread.unreadCount + 1,
+          };
+
+          const remaining = prev.filter((_, idx) => idx !== threadIndex);
+          return [updatedThread, ...remaining];
+        });
+
+        // 3. If this conversation is currently open and we are the recipient, auto-mark as read immediately
+        if (isCurrentActive && !isMe) {
+          void markThreadReadRequest(payload.threadId).catch((err) => {
+            console.warn('[MessagesScreen] Failed auto markThreadRead on new_message:', err);
           });
-          void loadThreads(true);
-          const openThread = activeThreadRef.current;
-          if (openThread) void loadConversation(openThread, true);
         }
-      );
-      void markMessagesDeliveredRequest().catch((receiptError) => {
-        console.warn('[Messages] Could not acknowledge initial delivery:', receiptError);
-      });
-      refreshTimer = setTimeout(() => void connect(), Math.max(60, session.expiresInSeconds - 120) * 1000);
-    };
+      },
+      onMessageRead: (payload) => {
+        const myId = currentUser?.id;
+        if (!myId) return;
+        const isParticipant = (payload.participants || []).some(
+          (p) => String(p) === String(myId)
+        );
+        if (!isParticipant) return;
 
-    void connect().catch((error) => {
-      console.warn('[Messages] Realtime connection failed:', error);
+        // If other user read this conversation, mark all messages sent by me as 'seen'
+        if (String(payload.readerId) !== String(myId)) {
+          setMessages((prev) => {
+            const threadMsgs = prev[payload.threadId];
+            if (!threadMsgs) return prev;
+            return {
+              ...prev,
+              [payload.threadId]: threadMsgs.map((m) => {
+                if (m.isMe || String(m.senderId) === String(myId)) {
+                  return {
+                    ...m,
+                    seenAt: payload.seenAt,
+                    receiptStatus: 'seen' as const,
+                  };
+                }
+                return m;
+              }),
+            };
+          });
+        }
+      },
+      onMessagesDelivered: (payload) => {
+        const myId = currentUser?.id;
+        if (!myId) return;
+
+        // If other user received/delivered messages, mark pending sent messages as 'delivered'
+        if (String(payload.recipientId) !== String(myId)) {
+          setMessages((prev) => {
+            const next = { ...prev };
+            let changed = false;
+            for (const threadId of Object.keys(next)) {
+              next[threadId] = next[threadId].map((m) => {
+                if ((m.isMe || String(m.senderId) === String(myId)) && m.receiptStatus === 'sent') {
+                  changed = true;
+                  return {
+                    ...m,
+                    deliveredAt: payload.deliveredAt,
+                    receiptStatus: 'delivered' as const,
+                  };
+                }
+                return m;
+              });
+            }
+            return changed ? next : prev;
+          });
+        }
+      },
     });
 
     return () => {
-      disposed = true;
-      if (refreshTimer) clearTimeout(refreshTimer);
-      unsubscribe?.();
+      unsubscribe();
     };
-  }, [loadConversation, loadThreads]);
+  }, [currentUser?.id, loadThreads]);
 
   useEffect(() => {
     const timer = setTimeout(() => messagesRef.current?.scrollToEnd({ animated: true }), 50);
@@ -182,12 +290,23 @@ export const MessagesScreen: React.FC = () => {
     setIsSending(true);
     try {
       const sent = await sendThreadMessageRequest(activeThread.id, text);
-      setMessages(prev => ({ ...prev, [activeThread.id]: [...(prev[activeThread.id] || []), sent] }));
-      setMessageThreads(prev => prev.map(thread =>
-        thread.id === activeThread.id
-          ? { ...thread, lastMessage: sent.text, lastMessageTime: sent.timestamp }
-          : thread
-      ));
+      setMessages(prev => {
+        const list = prev[activeThread.id] || [];
+        const exists = list.some(m => m.id === sent.id);
+        if (exists) return prev;
+        return { ...prev, [activeThread.id]: [...list, sent] };
+      });
+      setMessageThreads(prev => {
+        const threadIndex = prev.findIndex(t => t.id === activeThread.id);
+        if (threadIndex === -1) return prev;
+        const current = prev[threadIndex];
+        const updated = {
+          ...current,
+          lastMessage: sent.text,
+          lastMessageTime: sent.timestamp,
+        };
+        return [updated, ...prev.filter((_, idx) => idx !== threadIndex)];
+      });
     } catch (error) {
       setInputText(text);
       Alert.alert('Message not sent', error instanceof Error ? error.message : 'Please try again.');

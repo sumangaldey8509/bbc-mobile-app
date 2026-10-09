@@ -23,7 +23,10 @@ import { ProfileSetupScreen } from '../screens/ProfileSetupScreen';
 import { CustomSplashScreen } from '../screens/CustomSplashScreen';
 import { AdminConsoleScreen } from '../screens/admin/AdminConsoleScreen';
 import {
-  Notifications,
+  NotificationResponse,
+  addNotificationResponseListener,
+  clearLastNotificationResponse,
+  getLastNotificationResponse,
   getMessageThreadIdFromNotification,
   registerAndroidPushNotifications,
 } from '../services/pushNotifications';
@@ -112,13 +115,25 @@ export const AppNavigator: React.FC = () => {
   }, [isAuthenticated, isProfileApproved]);
 
   useEffect(() => {
-    const handleResponse = (response: Notifications.NotificationResponse | null) => {
+    if (Platform.OS === 'web') return;
+
+    const handleResponse = (response: NotificationResponse | null) => {
       const threadId = getMessageThreadIdFromNotification(response);
       if (threadId) setPendingMessageThreadId(threadId);
     };
-    handleResponse(Notifications.getLastNotificationResponse());
-    const subscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
-    return () => subscription.remove();
+
+    void getLastNotificationResponse()
+      .then((response) => {
+        if (response) handleResponse(response);
+      })
+      .catch((err) => {
+        console.warn('[Push] Error getting last notification response:', err);
+      });
+
+    const subscription = addNotificationResponseListener(handleResponse);
+    return () => {
+      subscription?.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -128,7 +143,9 @@ export const AppNavigator: React.FC = () => {
       params: { threadId: pendingMessageThreadId },
     });
     setPendingMessageThreadId(null);
-    Notifications.clearLastNotificationResponse();
+    if (Platform.OS !== 'web') {
+      void clearLastNotificationResponse().catch(() => {});
+    }
   }, [pendingMessageThreadId, navigationReady, isAuthenticated, isProfileApproved]);
 
   const handleDrawerNavigate = (screenName: string) => {

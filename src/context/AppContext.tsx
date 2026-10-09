@@ -489,6 +489,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setNotifications(prev => [incomingNotif, ...prev.filter(n => n.id !== incomingNotif.id)]);
         }
       },
+      onNewMessage: (payload) => {
+        console.log('[AppContext] Received live new_message:', payload.threadId);
+        const myId = currentUserRef.current?.id;
+        if (!myId) return;
+        const isParticipant = (payload.participants || []).some(
+          (p) => String(p) === String(myId)
+        );
+        if (!isParticipant) return;
+        const isMe = String(payload.senderId) === String(myId);
+
+        setMessages((prev) => {
+          const currentThreadMessages = prev[payload.threadId] || [];
+          const exists = currentThreadMessages.some((m) => m.id === payload.message.id);
+          if (exists) return prev;
+          return {
+            ...prev,
+            [payload.threadId]: [...currentThreadMessages, { ...payload.message, isMe }],
+          };
+        });
+      },
     });
 
     return () => {

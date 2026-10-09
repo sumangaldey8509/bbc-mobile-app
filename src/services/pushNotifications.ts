@@ -1,15 +1,31 @@
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
-import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
 import { apiRequest } from './apiClient';
 
 const STORED_PUSH_TOKEN_KEY = 'bbc_expo_push_token';
 
+type NotificationsModule = typeof import('expo-notifications');
+export type NotificationResponse = import('expo-notifications').NotificationResponse;
+
+// Remote notifications are intentionally unavailable in Expo Go on Android.
+// Avoid evaluating expo-notifications there because SDK 53+ throws during
+// module initialization before the application can render.
+const isExpoGo = Constants.appOwnership === 'expo';
+let notificationsModule: NotificationsModule | null | undefined;
+
+const getNotifications = (): NotificationsModule | null => {
+  if (isExpoGo) return null;
+  if (notificationsModule === undefined) {
+    notificationsModule = require('expo-notifications') as NotificationsModule;
+  }
+  return notificationsModule;
+};
+
 // Realtime already updates an open app. Let Android display remote notifications
 // when the app is backgrounded or closed, without duplicating them in foreground.
-Notifications.setNotificationHandler({
+getNotifications()?.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: false,
     shouldSetBadge: false,
@@ -20,6 +36,9 @@ Notifications.setNotificationHandler({
 
 export async function registerAndroidPushNotifications() {
   if (Platform.OS !== 'android' || !Device.isDevice) return null;
+
+  const Notifications = getNotifications();
+  if (!Notifications) return null;
 
   await Notifications.setNotificationChannelAsync('messages', {
     name: 'Messages',
@@ -66,7 +85,7 @@ export async function unregisterCurrentPushToken() {
 }
 
 export function getMessageThreadIdFromNotification(
-  response: Notifications.NotificationResponse | null
+  response: NotificationResponse | null
 ) {
   const data = response?.notification.request.content.data;
   return data?.type === 'message' && typeof data.threadId === 'string'
@@ -74,4 +93,16 @@ export function getMessageThreadIdFromNotification(
     : null;
 }
 
-export { Notifications };
+export async function getLastNotificationResponse() {
+  return getNotifications()?.getLastNotificationResponseAsync() ?? null;
+}
+
+export function addNotificationResponseListener(
+  listener: (response: NotificationResponse) => void
+) {
+  return getNotifications()?.addNotificationResponseReceivedListener(listener) ?? null;
+}
+
+export async function clearLastNotificationResponse() {
+  await getNotifications()?.clearLastNotificationResponseAsync();
+}

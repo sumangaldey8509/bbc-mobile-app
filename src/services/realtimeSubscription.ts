@@ -1,8 +1,30 @@
 import { supabase } from './supabaseClient';
-import { Post, PostComment, AppNotification } from '../types';
+import { Post, PostComment, AppNotification, Message } from '../types';
+
+export interface NewMessagePayload {
+  threadId: string;
+  senderId: string;
+  recipientId: string | null;
+  participants: string[];
+  message: Message;
+  lastMessage: string;
+  lastMessageAt: string;
+}
+
+export interface MessageReadPayload {
+  threadId: string;
+  readerId: string;
+  participants: string[];
+  seenAt: string;
+}
+
+export interface MessagesDeliveredPayload {
+  recipientId: string;
+  deliveredAt: string;
+}
 
 export interface FeedRealtimeHandlers {
-  onNewPost: (post: Post) => void;
+  onNewPost?: (post: Post) => void;
   onUpdatePost?: (post: Post) => void;
   onDeletePost?: (payload: { id?: string; deletedPostId?: string }) => void;
   onPostLike?: (payload: { postId: string; likesCount: number; userId?: string; isLiked?: boolean }) => void;
@@ -10,18 +32,33 @@ export interface FeedRealtimeHandlers {
   onUpdateComment?: (comment: PostComment) => void;
   onDeleteComment?: (payload: { postId: string; commentId: string; deletedCommentId?: string; commentsCount?: number }) => void;
   onNewNotification?: (notification: AppNotification) => void;
+  onNewMessage?: (payload: NewMessagePayload) => void;
+  onMessageRead?: (payload: MessageReadPayload) => void;
+  onMessagesDelivered?: (payload: MessagesDeliveredPayload) => void;
 }
 
-/**
- * Subscribe to Supabase Realtime Broadcast events for the 'feed' channel.
- * Returns an unsubscribe teardown function.
- */
-export function subscribeToFeedRealtime(handlers: FeedRealtimeHandlers): () => void {
-  const channel = supabase.channel('feed', {
+const formatTime = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  return date.toLocaleDateString([], { day: '2-digit', month: 'short' });
+};
+
+const activeListeners = new Set<FeedRealtimeHandlers>();
+let globalFeedChannel: ReturnType<typeof supabase.channel> | null = null;
+
+function ensureFeedChannel() {
+  if (globalFeedChannel) return globalFeedChannel;
+
+  globalFeedChannel = supabase.channel('feed', {
     config: { broadcast: { self: false, ack: false } },
   });
 
-  channel
+  globalFeedChannel
     .on('broadcast', { event: 'new_post' }, ({ payload }) => {
       console.log('[Supabase Realtime] Received "new_post" broadcast:', payload?.id || payload?._id);
       if (payload && (payload.id || payload._id)) {
@@ -30,35 +67,35 @@ export function subscribeToFeedRealtime(handlers: FeedRealtimeHandlers): () => v
           id: String(payload.id || payload._id),
           tag: payload.tag || 'General',
         };
-        handlers.onNewPost(post);
+        activeListeners.forEach((h) => h.onNewPost?.(post));
       }
     })
     .on('broadcast', { event: 'update_post' }, ({ payload }) => {
       console.log('[Supabase Realtime] Received "update_post" broadcast:', payload?.id || payload?._id);
-      if (payload && (payload.id || payload._id) && handlers.onUpdatePost) {
+      if (payload && (payload.id || payload._id)) {
         const post: Post = {
           ...payload,
           id: String(payload.id || payload._id),
           tag: payload.tag || 'General',
         };
-        handlers.onUpdatePost(post);
+        activeListeners.forEach((h) => h.onUpdatePost?.(post));
       }
     })
     .on('broadcast', { event: 'delete_post' }, ({ payload }) => {
       console.log('[Supabase Realtime] Received "delete_post" broadcast:', payload);
-      if (payload && handlers.onDeletePost) {
-        handlers.onDeletePost(payload);
+      if (payload) {
+        activeListeners.forEach((h) => h.onDeletePost?.(payload));
       }
     })
     .on('broadcast', { event: 'post_like' }, ({ payload }) => {
       console.log('[Supabase Realtime] Received "post_like" broadcast:', payload);
-      if (payload && payload.postId && handlers.onPostLike) {
-        handlers.onPostLike(payload);
+      if (payload && payload.postId) {
+        activeListeners.forEach((h) => h.onPostLike?.(payload));
       }
     })
     .on('broadcast', { event: 'new_comment' }, ({ payload }) => {
       console.log('[Supabase Realtime] Received "new_comment" broadcast:', payload?.id || payload?._id);
-      if (payload && (payload.id || payload._id) && handlers.onNewComment) {
+      if (payload && (payload.id || payload._id)) {
         const comment: PostComment = {
           ...payload,
           id: String(payload.id || payload._id),
@@ -68,12 +105,12 @@ export function subscribeToFeedRealtime(handlers: FeedRealtimeHandlers): () => v
           createdAt: payload.createdAt || 'Just now',
           parentCommentId: payload.parentCommentId ? String(payload.parentCommentId) : null,
         };
-        handlers.onNewComment(comment);
+        activeListeners.forEach((h) => h.onNewComment?.(comment));
       }
     })
     .on('broadcast', { event: 'update_comment' }, ({ payload }) => {
       console.log('[Supabase Realtime] Received "update_comment" broadcast:', payload?.id || payload?._id);
-      if (payload && (payload.id || payload._id) && handlers.onUpdateComment) {
+      if (payload && (payload.id || payload._id)) {
         const comment: PostComment = {
           ...payload,
           id: String(payload.id || payload._id),
@@ -83,18 +120,18 @@ export function subscribeToFeedRealtime(handlers: FeedRealtimeHandlers): () => v
           createdAt: payload.createdAt || 'Just now',
           parentCommentId: payload.parentCommentId ? String(payload.parentCommentId) : null,
         };
-        handlers.onUpdateComment(comment);
+        activeListeners.forEach((h) => h.onUpdateComment?.(comment));
       }
     })
     .on('broadcast', { event: 'delete_comment' }, ({ payload }) => {
       console.log('[Supabase Realtime] Received "delete_comment" broadcast:', payload);
-      if (payload && handlers.onDeleteComment) {
-        handlers.onDeleteComment(payload);
+      if (payload) {
+        activeListeners.forEach((h) => h.onDeleteComment?.(payload));
       }
     })
     .on('broadcast', { event: 'new_notification' }, ({ payload }) => {
       console.log('[Supabase Realtime] Received "new_notification" broadcast:', payload);
-      if (payload && (payload.id || payload._id) && handlers.onNewNotification) {
+      if (payload && (payload.id || payload._id)) {
         const notif: AppNotification = {
           ...payload,
           id: String(payload.id || payload._id),
@@ -111,41 +148,88 @@ export function subscribeToFeedRealtime(handlers: FeedRealtimeHandlers): () => v
           postId: payload.postId ? String(payload.postId) : undefined,
           commentId: payload.commentId ? String(payload.commentId) : undefined,
         };
-        handlers.onNewNotification(notif);
+        activeListeners.forEach((h) => h.onNewNotification?.(notif));
+      }
+    })
+    .on('broadcast', { event: 'new_message' }, ({ payload }) => {
+      console.log('[Supabase Realtime] Received "new_message" broadcast:', payload?.threadId, payload?.message?.id);
+      if (payload && payload.threadId && payload.message) {
+        const rawMsg = payload.message;
+        const msg: Message = {
+          id: String(rawMsg.id || rawMsg._id),
+          threadId: String(payload.threadId),
+          senderId: String(rawMsg.senderId || rawMsg.sender),
+          text: rawMsg.text || '',
+          timestamp: formatTime(rawMsg.createdAt) || 'Just now',
+          createdAt: rawMsg.createdAt,
+          deliveredAt: rawMsg.deliveredAt || null,
+          seenAt: rawMsg.seenAt || null,
+          receiptStatus: rawMsg.seenAt ? 'seen' : rawMsg.deliveredAt ? 'delivered' : 'sent',
+          isMe: false,
+        };
+        const messagePayload: NewMessagePayload = {
+          threadId: String(payload.threadId),
+          senderId: String(payload.senderId),
+          recipientId: payload.recipientId ? String(payload.recipientId) : null,
+          participants: (payload.participants || []).map(String),
+          message: msg,
+          lastMessage: payload.lastMessage || rawMsg.text || '',
+          lastMessageAt: payload.lastMessageAt || rawMsg.createdAt || new Date().toISOString(),
+        };
+        activeListeners.forEach((h) => h.onNewMessage?.(messagePayload));
+      }
+    })
+    .on('broadcast', { event: 'message_read' }, ({ payload }) => {
+      console.log('[Supabase Realtime] Received "message_read" broadcast:', payload?.threadId, payload?.readerId);
+      if (payload && payload.threadId) {
+        const readPayload: MessageReadPayload = {
+          threadId: String(payload.threadId),
+          readerId: String(payload.readerId),
+          participants: (payload.participants || []).map(String),
+          seenAt: payload.seenAt || new Date().toISOString(),
+        };
+        activeListeners.forEach((h) => h.onMessageRead?.(readPayload));
+      }
+    })
+    .on('broadcast', { event: 'messages_delivered' }, ({ payload }) => {
+      console.log('[Supabase Realtime] Received "messages_delivered" broadcast:', payload?.recipientId);
+      if (payload && payload.recipientId) {
+        const deliveredPayload: MessagesDeliveredPayload = {
+          recipientId: String(payload.recipientId),
+          deliveredAt: payload.deliveredAt || new Date().toISOString(),
+        };
+        activeListeners.forEach((h) => h.onMessagesDelivered?.(deliveredPayload));
       }
     })
     .subscribe((status, err) => {
       if (status === 'SUBSCRIBED') {
-        console.log('[Supabase Realtime] Connected to feed channel.');
+        console.log('[Supabase Realtime] Connected to feed broadcast channel.');
       } else {
         console.log(`[Supabase Realtime] Channel status: ${status}`, err || '');
       }
     });
 
+  return globalFeedChannel;
+}
+
+/**
+ * Subscribe to Supabase Realtime Broadcast events for the feed & messaging.
+ * Returns an unsubscribe teardown function.
+ */
+export function subscribeToFeedRealtime(handlers: FeedRealtimeHandlers): () => void {
+  activeListeners.add(handlers);
+  ensureFeedChannel();
+
   return () => {
-    supabase.removeChannel(channel);
+    activeListeners.delete(handlers);
   };
 }
 
-/** Subscribe to the signed-in member's RLS-protected private messaging topic. */
+/** Legacy placeholder for private message realtime. Kept for backwards compatibility. */
 export async function subscribeToPrivateMessageRealtime(
-  token: string,
-  topic: string,
-  onChanged: () => void
+  _token: string,
+  _topic: string,
+  _onChanged: () => void
 ): Promise<() => void> {
-  await supabase.realtime.setAuth(token);
-  const channel = supabase.channel(topic, { config: { private: true } });
-
-  channel
-    .on('broadcast', { event: 'changed' }, () => onChanged())
-    .subscribe((status, err) => {
-      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        console.warn('[Supabase Realtime] Private messaging channel error:', err || status);
-      }
-    });
-
-  return () => {
-    void supabase.removeChannel(channel);
-  };
+  return () => {};
 }
-
