@@ -9,6 +9,9 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -19,11 +22,17 @@ import {
   Lock,
   QrCode,
   Check,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
 import { InitialsAvatar } from '../components/InitialsAvatar';
 import { SearchScreenSkeleton } from '../components/SkeletonLoader';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 export const SearchScreen: React.FC = () => {
   const {
@@ -40,6 +49,12 @@ export const SearchScreen: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedIndustry, setSelectedIndustry] = useState<string>('All');
+  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
+
+  const toggleExpandMember = (memberId: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedMemberId(prev => (prev === memberId ? null : memberId));
+  };
 
   useEffect(() => {
     let active = true;
@@ -126,25 +141,6 @@ export const SearchScreen: React.FC = () => {
           </ScrollView>
         ) : (
           <>
-            {/* Industry Filter Pills */}
-            <View style={styles.filterSection}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-                {industries.map(ind => {
-                  const isSelected = selectedIndustry === ind;
-                  return (
-                    <TouchableOpacity
-                      key={ind}
-                      style={[styles.filterPill, isSelected && styles.filterPillActive]}
-                      onPress={() => setSelectedIndustry(ind)}
-                    >
-                      <Text style={[styles.filterText, isSelected && styles.filterTextActive]}>
-                        {ind}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
 
             {/* Search Results Summary */}
             <View style={styles.resultsMetaRow}>
@@ -167,122 +163,147 @@ export const SearchScreen: React.FC = () => {
                 />
               }
             >
-          {filteredUsers.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Search color={colors.textMuted} size={40} />
-              <Text style={styles.emptyTitle}>No Business Owners Found</Text>
-              <Text style={styles.emptySubtitle}>Try searching with different keywords, company name, or GST number.</Text>
-            </View>
-          ) : (
-            filteredUsers.map(member => {
-              const isAccessRequested = requestedAdminAccessIds.includes(member.id);
-
-              return (
-                <View key={member.id} style={styles.memberCard}>
-                  {/* Top Profile Info */}
-                  <View style={styles.cardHeader}>
-                    <TouchableOpacity onPress={() => openDigitalBusinessCard(member)} activeOpacity={0.8}>
-                      <InitialsAvatar
-                        name={member.name}
-                        uri={member.avatar || undefined}
-                        size={52}
-                        style={styles.avatar}
-                      />
-                    </TouchableOpacity>
-
-                    <View style={styles.headerInfo}>
-                      <View style={styles.nameRow}>
-                        <Text style={styles.memberName}>{member.name}</Text>
-                        {member.isGstVerified && <ShieldCheck color={colors.emerald} size={15} />}
-                      </View>
-                      <Text style={styles.designation}>{member.designation || 'Member'}</Text>
-                      {member.companyName ? (
-                        <View style={styles.companyRow}>
-                          <Building2 color={colors.primary} size={12} />
-                          <Text style={styles.companyName} numberOfLines={1}>{member.companyName}</Text>
-                        </View>
-                      ) : null}
-                      <Text style={styles.chapterText}>
-                        {member.chapter} • Member since {member.yearJoined}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* GSTIN & Turnover Grid */}
-                  <View style={styles.specGrid}>
-                    <View style={styles.specItem}>
-                      <Text style={styles.specLabel}>GST NUMBER</Text>
-                      <Text style={styles.specGst}>{member.gstNumber || 'Not provided'}</Text>
-                    </View>
-
-                    <View style={styles.specItem}>
-                      <Text style={styles.specLabel}>ANNUAL TURNOVER</Text>
-                      <Text style={styles.specValue}>{member.turnover || 'Not disclosed'}</Text>
-                    </View>
-
-                    <View style={styles.specItem}>
-                      <Text style={styles.specLabel}>LOCATION</Text>
-                      <Text style={styles.specValue}>{member.location || '—'}</Text>
-                    </View>
-
-                    <View style={styles.specItem}>
-                      <Text style={styles.specLabel}>MEMBERSHIP TIER</Text>
-                      <Text style={styles.specTier}>{member.membershipTier}</Text>
-                    </View>
-                  </View>
-
-                  {/* Bio snippet */}
-                  <Text style={styles.bioSnippet} numberOfLines={2}>
-                    {member.bio || 'Bengal Business Council Member'}
-                  </Text>
-
-                  {/* Action Buttons Row */}
-                  <View style={styles.cardActions}>
-                    {/* View Card */}
-                    <TouchableOpacity
-                      style={styles.cardBtn}
-                      onPress={() => openDigitalBusinessCard(member)}
-                      activeOpacity={0.7}
-                    >
-                      <QrCode color={colors.primary} size={14} />
-                      <Text style={styles.cardBtnText}>Visiting Card</Text>
-                    </TouchableOpacity>
-
-                    {/* Schedule 1-to-1 */}
-                    <TouchableOpacity
-                      style={styles.scheduleBtn}
-                      onPress={() => openLogOneToOne(member)}
-                      activeOpacity={0.7}
-                    >
-                      <CalendarPlus color={colors.white} size={14} />
-                      <Text style={styles.scheduleBtnText}>1-to-1</Text>
-                    </TouchableOpacity>
-
-                    {/* Request Full Details to Admin */}
-                    <TouchableOpacity
-                      style={[styles.adminRequestBtn, isAccessRequested && styles.adminRequestBtnSuccess]}
-                      onPress={() => openRequestAdminAccess(member)}
-                      activeOpacity={0.7}
-                    >
-                      {isAccessRequested ? (
-                        <>
-                          <Check color={colors.emerald} size={13} strokeWidth={3} />
-                          <Text style={styles.adminSuccessText}>Request Sent</Text>
-                        </>
-                      ) : (
-                        <>
-                          <Lock color={colors.accentBlue} size={13} />
-                          <Text style={styles.adminRequestText}>Request Intro</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
+              {filteredUsers.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Search color={colors.textMuted} size={40} />
+                  <Text style={styles.emptyTitle}>No Business Owners Found</Text>
+                  <Text style={styles.emptySubtitle}>Try searching with different keywords, company name, or GST number.</Text>
                 </View>
-              );
-            })
-          )}
-        </ScrollView>
-        </>
+              ) : (
+                filteredUsers.map(member => {
+                  const isAccessRequested = requestedAdminAccessIds.includes(member.id);
+                  const isExpanded = expandedMemberId === member.id;
+
+                  return (
+                    <View key={member.id} style={[styles.memberCard, isExpanded && styles.memberCardExpanded]}>
+                      {/* Top Profile Info Header - Accordion Toggle */}
+                      <TouchableOpacity
+                        style={[styles.cardHeader, isExpanded && styles.cardHeaderExpanded]}
+                        onPress={() => toggleExpandMember(member.id)}
+                        activeOpacity={0.7}
+                      >
+                        <TouchableOpacity
+                          onPress={(e) => {
+                            e.stopPropagation?.();
+                            openDigitalBusinessCard(member);
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <InitialsAvatar
+                            name={member.name}
+                            uri={member.avatar || undefined}
+                            size={50}
+                            style={styles.avatar}
+                          />
+                        </TouchableOpacity>
+
+                        <View style={styles.headerInfo}>
+                          <View style={styles.nameRow}>
+                            <Text style={styles.memberName}>{member.name}</Text>
+                            {member.isGstVerified && <ShieldCheck color={colors.emerald} size={15} />}
+                          </View>
+                          <Text style={styles.designation} numberOfLines={1}>{member.designation || 'Member'}</Text>
+                          {member.companyName ? (
+                            <View style={styles.companyRow}>
+                              <Building2 color={colors.primary} size={12} />
+                              <Text style={styles.companyName} numberOfLines={1}>{member.companyName}</Text>
+                            </View>
+                          ) : null}
+                          <Text style={styles.chapterText} numberOfLines={1}>
+                            {member.chapter} • Member since {member.yearJoined}
+                          </Text>
+                        </View>
+
+                        {/* Accordion Chevron Indicator */}
+                        <View style={[styles.chevronBadge, isExpanded && styles.chevronBadgeActive]}>
+                          {isExpanded ? (
+                            <ChevronUp color={colors.crimson} size={18} />
+                          ) : (
+                            <ChevronDown color={colors.textSecondary} size={18} />
+                          )}
+                        </View>
+                      </TouchableOpacity>
+
+                      {/* Expandable Accordion Body */}
+                      {isExpanded && (
+                        <View style={styles.accordionBody}>
+                          {/* GSTIN & Turnover Grid */}
+                          <View style={styles.specGrid}>
+                            <View style={styles.specItem}>
+                              <Text style={styles.specLabel}>GST NUMBER</Text>
+                              <Text style={styles.specGst}>{member.gstNumber || 'Not provided'}</Text>
+                            </View>
+
+                            <View style={styles.specItem}>
+                              <Text style={styles.specLabel}>ANNUAL TURNOVER</Text>
+                              <Text style={styles.specValue}>{member.turnover || 'Not disclosed'}</Text>
+                            </View>
+
+                            <View style={styles.specItem}>
+                              <Text style={styles.specLabel}>LOCATION</Text>
+                              <Text style={styles.specValue}>{member.location || '—'}</Text>
+                            </View>
+
+                            <View style={styles.specItem}>
+                              <Text style={styles.specLabel}>MEMBERSHIP TIER</Text>
+                              <Text style={styles.specTier}>{member.membershipTier}</Text>
+                            </View>
+                          </View>
+
+                          {/* Bio snippet */}
+                          <Text style={styles.bioSnippet} numberOfLines={3}>
+                            {member.bio || 'Bengal Business Council Member'}
+                          </Text>
+
+                          {/* Action Buttons Row */}
+                          <View style={styles.cardActions}>
+                            {/* View Card */}
+                            <TouchableOpacity
+                              style={styles.cardBtn}
+                              onPress={() => openDigitalBusinessCard(member)}
+                              activeOpacity={0.7}
+                            >
+                              <QrCode color={colors.primary} size={14} />
+                              <Text style={styles.cardBtnText}>Visiting Card</Text>
+                            </TouchableOpacity>
+
+                            {/* Schedule 1-to-1 */}
+                            <TouchableOpacity
+                              style={styles.scheduleBtn}
+                              onPress={() => openLogOneToOne(member)}
+                              activeOpacity={0.7}
+                            >
+                              <CalendarPlus color={colors.white} size={14} />
+                              <Text style={styles.scheduleBtnText}>1-to-1</Text>
+                            </TouchableOpacity>
+
+                            {/* Request Full Details to Admin */}
+                            <TouchableOpacity
+                              style={[styles.adminRequestBtn, isAccessRequested && styles.adminRequestBtnSuccess]}
+                              onPress={() => openRequestAdminAccess(member)}
+                              activeOpacity={0.7}
+                            >
+                              {isAccessRequested ? (
+                                <>
+                                  <Check color={colors.emerald} size={13} strokeWidth={3} />
+                                  <Text style={styles.adminSuccessText}>Request Sent</Text>
+                                </>
+                              ) : (
+                                <>
+                                  <Lock color={colors.accentBlue} size={13} />
+                                  <Text style={styles.adminRequestText}>Request Intro</Text>
+                                </>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+          </>
         )}
       </View>
     </SafeAreaView>
@@ -415,15 +436,39 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 3,
   },
+  memberCardExpanded: {
+    borderColor: 'rgba(217, 39, 46, 0.35)',
+    shadowOpacity: 0.08,
+  },
   cardHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
-    marginBottom: 10,
+  },
+  cardHeaderExpanded: {
+    marginBottom: 12,
+  },
+  chevronBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.cardBgElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+  },
+  chevronBadgeActive: {
+    backgroundColor: '#FFEBEB',
+  },
+  accordionBody: {
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+    paddingTop: 12,
   },
   avatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     borderWidth: 2,
     borderColor: colors.crimson,
     backgroundColor: colors.cardBgElevated,
