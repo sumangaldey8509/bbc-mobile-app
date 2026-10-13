@@ -8,6 +8,8 @@ import {
   Image,
   TouchableOpacity,
   KeyboardAvoidingView,
+  Keyboard,
+  StatusBar,
   Platform,
   RefreshControl,
   ActivityIndicator,
@@ -18,7 +20,7 @@ import {
   AppStateStatus,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import {
   Send,
   ArrowLeft,
@@ -155,6 +157,33 @@ export const MessagesScreen: React.FC = () => {
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const otherTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const route = useRoute<any>();
+  const navigation = useNavigation();
+
+  // Hide bottom tab bar in active conversation view (WhatsApp experience)
+  useEffect(() => {
+    if (activeThread) {
+      navigation.setOptions({ tabBarStyle: { display: 'none' } });
+    } else {
+      navigation.setOptions({ tabBarStyle: undefined });
+    }
+    return () => {
+      navigation.setOptions({ tabBarStyle: undefined });
+    };
+  }, [activeThread, navigation]);
+
+  // Auto scroll to bottom when keyboard opens
+  useEffect(() => {
+    if (!activeThread) return;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const sub = Keyboard.addListener(showEvent, () => {
+      setTimeout(() => {
+        messagesRef.current?.scrollToEnd({ animated: true });
+      }, 80);
+    });
+    return () => {
+      sub.remove();
+    };
+  }, [activeThread]);
 
   const loadThreads = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
@@ -580,7 +609,10 @@ export const MessagesScreen: React.FC = () => {
   });
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={activeThread ? ['top', 'left', 'right', 'bottom'] : ['top', 'left', 'right']}
+    >
       {!activeThread ? (
         <>
           <Header showSearchBar={false} />
@@ -683,8 +715,8 @@ export const MessagesScreen: React.FC = () => {
         /* Conversation View */
         <KeyboardAvoidingView
           style={styles.chatContainer}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : (StatusBar.currentHeight || 0)}
         >
           {/* Chat Top Bar */}
           <View style={styles.chatHeader}>
@@ -739,6 +771,9 @@ export const MessagesScreen: React.FC = () => {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.messagesList}
             ref={messagesRef}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            onContentSizeChange={() => messagesRef.current?.scrollToEnd({ animated: true })}
           >
             {isLoadingConversation && (
               <ActivityIndicator color={colors.crimson} style={styles.conversationLoader} />
