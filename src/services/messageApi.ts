@@ -36,15 +36,32 @@ interface MessagesResponse {
   pagination: { total: number; page: number; limit: number; pages: number; hasMore: boolean };
 }
 
-const formatTime = (value?: string) => {
+export const formatThreadTime = (value?: string) => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   const now = new Date();
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((today.getTime() - msgDate.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
   }
-  return date.toLocaleDateString([], { day: '2-digit', month: 'short' });
+  if (diffDays === 1) {
+    return 'Yesterday';
+  }
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString([], { day: '2-digit', month: 'short' });
+  }
+  return date.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' });
+};
+
+export const formatMessageTime = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 };
 
 const participantToUser = (participant: BackendParticipant): User => ({
@@ -71,13 +88,13 @@ const adaptThread = (thread: BackendThread): MessageThread => ({
   participant: participantToUser(thread.participant),
   lastMessage: thread.lastMessage,
   lastMessageAt: thread.lastMessageAt,
-  lastMessageTime: formatTime(thread.lastMessageAt),
+  lastMessageTime: formatThreadTime(thread.lastMessageAt),
   unreadCount: thread.unreadCount,
 });
 
 const adaptMessage = (message: BackendMessage): Message => ({
   ...message,
-  timestamp: formatTime(message.createdAt),
+  timestamp: formatMessageTime(message.createdAt),
 });
 
 export async function fetchMessageThreadsRequest() {

@@ -18,6 +18,8 @@ import {
   Animated,
   AppState,
   AppStateStatus,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -57,16 +59,62 @@ import {
   ensureRealtimeConnected,
 } from '../services/realtimeSubscription';
 
-const formatTime = (value?: string) => {
+const isSameDay = (a?: string | null, b?: string | null): boolean => {
+  if (!a || !b) return false;
+  const d1 = new Date(a);
+  const d2 = new Date(b);
+  if (Number.isNaN(d1.getTime()) || Number.isNaN(d2.getTime())) return false;
+  return (
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate()
+  );
+};
+
+const formatDateSeparator = (value?: string | null): string => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   const now = new Date();
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString([], { day: 'numeric', month: 'short' });
   }
-  return date.toLocaleDateString([], { day: '2-digit', month: 'short' });
+  return date.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
 };
+
+const formatMessageTime = (value?: string | null): string => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+};
+
+const formatThreadTime = (value?: string | null): string => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+  }
+  if (diffDays === 1) return 'Yesterday';
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString([], { day: '2-digit', month: 'short' });
+  }
+  return date.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' });
+};
+
+const formatTime = formatThreadTime;
 
 const mergeReceiptStatus = (
   oldStatus?: 'sent' | 'delivered' | 'seen',
@@ -159,6 +207,97 @@ export const MessagesScreen: React.FC = () => {
   const route = useRoute<any>();
   const navigation = useNavigation();
 
+  // Floating sticky date separator state & animation
+  const [floatingDate, setFloatingDate] = useState<string>('');
+  const floatingDateOpacity = useRef(new Animated.Value(0)).current;
+  const hideFloatingDateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dateSeparatorPositionsRef = useRef<Record<number, { y: number; label: string }>>({});
+
+  const hideFloatingDate = useCallback((immediate = false) => {
+    if (hideFloatingDateTimerRef.current) {
+      clearTimeout(hideFloatingDateTimerRef.current);
+      hideFloatingDateTimerRef.current = null;
+    }
+    if (immediate) {
+      floatingDateOpacity.setValue(0);
+    } else {
+      Animated.timing(floatingDateOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [floatingDateOpacity]);
+
+  const showFloatingDate = useCallback(() => {
+    Animated.timing(floatingDateOpacity, {
+      toValue: 1,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
+
+    if (hideFloatingDateTimerRef.current) {
+      clearTimeout(hideFloatingDateTimerRef.current);
+    }
+    hideFloatingDateTimerRef.current = setTimeout(() => {
+      Animated.timing(floatingDateOpacity, {
+        toValue: 0,
+        duration: 350,
+        useNativeDriver: true,
+      }).start();
+    }, 1400);
+  }, [floatingDateOpacity]);
+
+  const handleMessagesScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const scrollY = event.nativeEvent.contentOffset.y;
+      const separators = Object.values(dateSeparatorPositionsRef.current).sort((a, b) => a.y - b.y);
+
+      // 1. If at top of chat, the inline date separator is already visible in its natural place
+      const firstSep = separators[0];
+      const isAtTop = firstSep ? scrollY <= firstSep.y + 10 : scrollY <= 25;
+
+      // 2. If any inline date separator is currently in the top slot of the viewport ([-15px to 55px]), hide floating badge so it does not overlap
+      const isOverlappingInlineSep = separators.some(
+        (sep) => sep.y - scrollY >= -15 && sep.y - scrollY <= 55
+      );
+
+      if (isAtTop || isOverlappingInlineSep) {
+        hideFloatingDate(true);
+        return;
+      }
+
+      showFloatingDate();
+
+      if (separators.length > 0) {
+        let activeLabel = separators[0].label;
+        for (const sep of separators) {
+          if (sep.y <= scrollY + 45) {
+            activeLabel = sep.label;
+          } else {
+            break;
+          }
+        }
+        setFloatingDate(activeLabel);
+      }
+    },
+    [hideFloatingDate, showFloatingDate]
+  );
+
+  useEffect(() => {
+    dateSeparatorPositionsRef.current = {};
+    if (activeThread && messages[activeThread.id]?.length) {
+      const threadMsgs = messages[activeThread.id];
+      const lastMsg = threadMsgs[threadMsgs.length - 1];
+      setFloatingDate(formatDateSeparator(lastMsg.createdAt || lastMsg.timestamp));
+    }
+    return () => {
+      if (hideFloatingDateTimerRef.current) {
+        clearTimeout(hideFloatingDateTimerRef.current);
+      }
+    };
+  }, [activeThread?.id, messages]);
+
   // Hide bottom tab bar in active conversation view (WhatsApp experience)
   useEffect(() => {
     if (activeThread) {
@@ -236,7 +375,7 @@ export const MessagesScreen: React.FC = () => {
         if (currentUser?.id) {
           void broadcastMessageRead(thread.id, currentUser.id);
         }
-        void markMessagesDeliveredRequest().catch(() => {});
+        void markMessagesDeliveredRequest().catch(() => { });
         setMessageThreads(prev => prev.map(item => item.id === thread.id ? { ...item, unreadCount: 0 } : item));
       } catch (receiptError) {
         console.warn('[Messages] Could not mark conversation as seen:', receiptError);
@@ -262,7 +401,7 @@ export const MessagesScreen: React.FC = () => {
       isSelfTypingRef.current = false;
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
       void broadcastTyping(activeThreadRef.current.id, currentUser.id, false);
-      void sendTypingStatusRequest(activeThreadRef.current.id, false).catch(() => {});
+      void sendTypingStatusRequest(activeThreadRef.current.id, false).catch(() => { });
     }
 
     activeThreadRef.current = activeThread;
@@ -275,7 +414,7 @@ export const MessagesScreen: React.FC = () => {
       if (otherTypingTimerRef.current) clearTimeout(otherTypingTimerRef.current);
       if (isSelfTypingRef.current && activeThreadRef.current && currentUser?.id) {
         void broadcastTyping(activeThreadRef.current.id, currentUser.id, false);
-        void sendTypingStatusRequest(activeThreadRef.current.id, false).catch(() => {});
+        void sendTypingStatusRequest(activeThreadRef.current.id, false).catch(() => { });
       }
     };
   }, [currentUser?.id]);
@@ -292,10 +431,10 @@ export const MessagesScreen: React.FC = () => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
         ensureRealtimeConnected();
-        void markMessagesDeliveredRequest().catch(() => {});
+        void markMessagesDeliveredRequest().catch(() => { });
         const open = activeThreadRef.current;
         if (open) {
-          void markThreadReadRequest(open.id).catch(() => {});
+          void markThreadReadRequest(open.id).catch(() => { });
           if (currentUser?.id) {
             void broadcastMessageRead(open.id, currentUser.id);
           }
@@ -347,8 +486,11 @@ export const MessagesScreen: React.FC = () => {
         if (!isParticipant) return;
 
         const isMe = String(payload.senderId) === String(myId);
+        const createdAt = payload.message.createdAt || new Date().toISOString();
         const incomingMsg: Message = {
           ...payload.message,
+          createdAt,
+          timestamp: formatMessageTime(createdAt),
           isMe,
         };
 
@@ -399,8 +541,8 @@ export const MessagesScreen: React.FC = () => {
           const updatedThread: MessageThread = {
             ...existingThread,
             lastMessage: payload.lastMessage,
-            lastMessageAt: payload.lastMessageAt,
-            lastMessageTime: formatTime(payload.lastMessageAt),
+            lastMessageAt: payload.lastMessageAt || createdAt,
+            lastMessageTime: formatThreadTime(payload.lastMessageAt || createdAt),
             unreadCount: isCurrentActive || isMe ? 0 : existingThread.unreadCount + 1,
           };
 
@@ -507,21 +649,21 @@ export const MessagesScreen: React.FC = () => {
       if (!isSelfTypingRef.current) {
         isSelfTypingRef.current = true;
         void broadcastTyping(thread.id, myId, true, currentUser.name);
-        void sendTypingStatusRequest(thread.id, true).catch(() => {});
+        void sendTypingStatusRequest(thread.id, true).catch(() => { });
       }
 
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
       typingTimerRef.current = setTimeout(() => {
         isSelfTypingRef.current = false;
         void broadcastTyping(thread.id, myId, false);
-        void sendTypingStatusRequest(thread.id, false).catch(() => {});
+        void sendTypingStatusRequest(thread.id, false).catch(() => { });
       }, 2500);
     } else {
       if (isSelfTypingRef.current) {
         isSelfTypingRef.current = false;
         if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
         void broadcastTyping(thread.id, myId, false);
-        void sendTypingStatusRequest(thread.id, false).catch(() => {});
+        void sendTypingStatusRequest(thread.id, false).catch(() => { });
       }
     }
   }, [currentUser?.id, currentUser?.name]);
@@ -537,7 +679,7 @@ export const MessagesScreen: React.FC = () => {
     if (isSelfTypingRef.current && myId) {
       isSelfTypingRef.current = false;
       void broadcastTyping(threadId, myId, false);
-      void sendTypingStatusRequest(threadId, false).catch(() => {});
+      void sendTypingStatusRequest(threadId, false).catch(() => { });
     }
 
     setInputText('');
@@ -567,7 +709,8 @@ export const MessagesScreen: React.FC = () => {
         const updated = {
           ...current,
           lastMessage: sent.text,
-          lastMessageTime: sent.timestamp,
+          lastMessageAt: sent.createdAt || new Date().toISOString(),
+          lastMessageTime: formatThreadTime(sent.createdAt || new Date().toISOString()),
         };
         return [updated, ...prev.filter((_, idx) => idx !== threadIndex)];
       });
@@ -657,57 +800,57 @@ export const MessagesScreen: React.FC = () => {
                   />
                 }
               >
-              {messageThreads.length === 0 && (
-                <View style={styles.emptyState}>
-                  <View style={styles.emptyIcon}>
-                    <UserPlus color={colors.crimson} size={24} />
+                {messageThreads.length === 0 && (
+                  <View style={styles.emptyState}>
+                    <View style={styles.emptyIcon}>
+                      <UserPlus color={colors.crimson} size={24} />
+                    </View>
+                    <Text style={styles.emptyTitle}>Start your first conversation</Text>
+                    <Text style={styles.emptyText}>Connect privately with a verified council member.</Text>
+                    <TouchableOpacity style={styles.emptyButton} onPress={() => setShowMemberPicker(true)}>
+                      <Text style={styles.emptyButtonText}>Choose a member</Text>
+                    </TouchableOpacity>
                   </View>
-                  <Text style={styles.emptyTitle}>Start your first conversation</Text>
-                  <Text style={styles.emptyText}>Connect privately with a verified council member.</Text>
-                  <TouchableOpacity style={styles.emptyButton} onPress={() => setShowMemberPicker(true)}>
-                    <Text style={styles.emptyButtonText}>Choose a member</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-              {messageThreads.map(thread => (
-                <TouchableOpacity
-                  key={thread.id}
-                  style={styles.threadItem}
-                  onPress={() => openThread(thread)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.avatarWrapper}>
-                    <Image source={{ uri: thread.participant.avatar }} style={styles.avatar} />
-                    {thread.unreadCount > 0 && <View style={styles.unreadDot} />}
-                  </View>
+                )}
+                {messageThreads.map(thread => (
+                  <TouchableOpacity
+                    key={thread.id}
+                    style={styles.threadItem}
+                    onPress={() => openThread(thread)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.avatarWrapper}>
+                      <Image source={{ uri: thread.participant.avatar }} style={styles.avatar} />
+                      {thread.unreadCount > 0 && <View style={styles.unreadDot} />}
+                    </View>
 
-                  <View style={styles.threadInfo}>
-                    <View style={styles.threadNameRow}>
-                      <Text style={styles.participantName}>{thread.participant.name}</Text>
-                      <Text style={styles.messageTime}>{thread.lastMessageTime}</Text>
+                    <View style={styles.threadInfo}>
+                      <View style={styles.threadNameRow}>
+                        <Text style={styles.participantName}>{thread.participant.name}</Text>
+                        <Text style={styles.messageTime}>{thread.lastMessageTime}</Text>
+                      </View>
+                      <View style={styles.companyRow}>
+                        <Building2 color={colors.primary} size={11} />
+                        <Text style={styles.participantCompany} numberOfLines={1}>
+                          {thread.participant.companyName}
+                        </Text>
+                      </View>
+                      {typingThreads[thread.id] ? (
+                        <Text style={styles.typingPreviewText} numberOfLines={1}>
+                          typing...
+                        </Text>
+                      ) : (
+                        <Text
+                          style={[styles.lastMessage, thread.unreadCount > 0 && styles.lastMessageUnread]}
+                          numberOfLines={1}
+                        >
+                          {thread.lastMessage}
+                        </Text>
+                      )}
                     </View>
-                    <View style={styles.companyRow}>
-                      <Building2 color={colors.primary} size={11} />
-                      <Text style={styles.participantCompany} numberOfLines={1}>
-                        {thread.participant.companyName}
-                      </Text>
-                    </View>
-                    {typingThreads[thread.id] ? (
-                      <Text style={styles.typingPreviewText} numberOfLines={1}>
-                        typing...
-                      </Text>
-                    ) : (
-                      <Text
-                        style={[styles.lastMessage, thread.unreadCount > 0 && styles.lastMessageUnread]}
-                        numberOfLines={1}
-                      >
-                        {thread.lastMessage}
-                      </Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             )}
           </View>
         </>
@@ -773,6 +916,8 @@ export const MessagesScreen: React.FC = () => {
             ref={messagesRef}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
+            scrollEventThrottle={16}
+            onScroll={handleMessagesScroll}
             onContentSizeChange={() => messagesRef.current?.scrollToEnd({ animated: true })}
           >
             {isLoadingConversation && (
@@ -785,42 +930,68 @@ export const MessagesScreen: React.FC = () => {
                 <Text style={styles.emptyConversationText}>Messages are visible only to the two participants.</Text>
               </View>
             )}
-            {currentMessages.map(msg => (
-              <View
-                key={msg.id}
-                style={[
-                  styles.messageBubbleWrapper,
-                  msg.isMe ? styles.myBubbleWrapper : styles.otherBubbleWrapper,
-                ]}
-              >
-                <View
-                  style={[
-                    styles.messageBubble,
-                    msg.isMe ? styles.myBubble : styles.otherBubble,
-                  ]}
-                >
-                  <Text style={[styles.messageText, msg.isMe ? styles.myMessageText : styles.otherMessageText]}>
-                    {msg.text}
-                  </Text>
-                  <View style={styles.messageMeta}>
-                    <Text style={[styles.msgTimestamp, msg.isMe ? styles.myTimestamp : styles.otherTimestamp]}>
-                      {msg.timestamp}
-                    </Text>
-                    {msg.isMe && (
-                      msg.receiptStatus === 'sent' ? (
-                        <Check size={13} strokeWidth={2.2} color="rgba(255, 255, 255, 0.72)" />
-                      ) : (
-                        <CheckCheck
-                          size={14}
-                          strokeWidth={2.2}
-                          color={msg.receiptStatus === 'seen' ? '#8DE8FF' : 'rgba(255, 255, 255, 0.82)'}
-                        />
-                      )
-                    )}
+            {currentMessages.map((msg, index) => {
+              const prevMsg = index > 0 ? currentMessages[index - 1] : null;
+              const msgDate = msg.createdAt || msg.timestamp;
+              const prevDate = prevMsg ? (prevMsg.createdAt || prevMsg.timestamp) : null;
+              const showDateSeparator = !prevMsg || !isSameDay(msgDate, prevDate);
+
+              return (
+                <React.Fragment key={msg.id}>
+                  {showDateSeparator && (
+                    <View
+                      style={styles.dateSeparatorWrapper}
+                      onLayout={(e) => {
+                        const y = e.nativeEvent.layout.y;
+                        dateSeparatorPositionsRef.current[index] = {
+                          y,
+                          label: formatDateSeparator(msgDate),
+                        };
+                      }}
+                    >
+                      <View style={styles.dateSeparatorBadge}>
+                        <Text style={styles.dateSeparatorText}>
+                          {formatDateSeparator(msgDate)}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                  <View
+                    style={[
+                      styles.messageBubbleWrapper,
+                      msg.isMe ? styles.myBubbleWrapper : styles.otherBubbleWrapper,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.messageBubble,
+                        msg.isMe ? styles.myBubble : styles.otherBubble,
+                      ]}
+                    >
+                      <Text style={[styles.messageText, msg.isMe ? styles.myMessageText : styles.otherMessageText]}>
+                        {msg.text}
+                      </Text>
+                      <View style={styles.messageMeta}>
+                        <Text style={[styles.msgTimestamp, msg.isMe ? styles.myTimestamp : styles.otherTimestamp]}>
+                          {formatMessageTime(msg.createdAt) || msg.timestamp}
+                        </Text>
+                        {msg.isMe && (
+                          msg.receiptStatus === 'sent' ? (
+                            <Check size={13} strokeWidth={2.2} color="rgba(255, 255, 255, 0.72)" />
+                          ) : (
+                            <CheckCheck
+                              size={14}
+                              strokeWidth={2.2}
+                              color={msg.receiptStatus === 'seen' ? '#8DE8FF' : 'rgba(255, 255, 255, 0.82)'}
+                            />
+                          )
+                        )}
+                      </View>
+                    </View>
                   </View>
-                </View>
-              </View>
-            ))}
+                </React.Fragment>
+              );
+            })}
             {isOtherTyping && (
               <View style={[styles.messageBubbleWrapper, styles.otherBubbleWrapper]}>
                 <View style={[styles.messageBubble, styles.otherBubble, styles.typingBubble]}>
@@ -829,6 +1000,21 @@ export const MessagesScreen: React.FC = () => {
               </View>
             )}
           </ScrollView>
+
+          {/* Floating Sticky Date Separator (WhatsApp style) */}
+          {floatingDate ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.floatingDateContainer,
+                { opacity: floatingDateOpacity },
+              ]}
+            >
+              <View style={styles.floatingDateBadge}>
+                <Text style={styles.floatingDateText}>{floatingDate}</Text>
+              </View>
+            </Animated.View>
+          ) : null}
 
           {/* Message Input Bar */}
           <View style={styles.inputBar}>
@@ -1175,6 +1361,56 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: colors.textMuted,
     textAlign: 'center',
+  },
+  dateSeparatorWrapper: {
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  dateSeparatorBadge: {
+    backgroundColor: colors.cardBgElevated,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  dateSeparatorText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    letterSpacing: 0.2,
+  },
+  floatingDateContainer: {
+    position: 'absolute',
+    top: 72,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 99,
+  },
+  floatingDateBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  floatingDateText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    letterSpacing: 0.2,
   },
   messageBubbleWrapper: {
     flexDirection: 'row',
