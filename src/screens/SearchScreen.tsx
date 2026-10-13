@@ -37,6 +37,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 export const SearchScreen: React.FC = () => {
   const {
     users,
+    currentUser,
     activeSearchQuery,
     setActiveSearchQuery,
     openDigitalBusinessCard,
@@ -90,6 +91,24 @@ export const SearchScreen: React.FC = () => {
   ];
 
   const filteredUsers = users.filter(user => {
+    // 1. Exclude the currently logged-in user
+    const isCurrentUser =
+      Boolean(currentUser?.id && user.id === currentUser.id) ||
+      Boolean(
+        currentUser?.contact?.email &&
+        user.contact?.email &&
+        user.contact.email.toLowerCase() === currentUser.contact.email.toLowerCase()
+      );
+
+    // 2. Exclude System Admin accounts
+    const isSystemAdmin =
+      Boolean(user.roles && user.roles.includes('admin')) ||
+      user.name.toLowerCase().trim() === 'system admin';
+
+    if (isCurrentUser || isSystemAdmin) {
+      return false;
+    }
+
     const q = activeSearchQuery.toLowerCase().trim();
     const matchesQuery =
       !q ||

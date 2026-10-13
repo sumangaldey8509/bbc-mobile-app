@@ -747,6 +747,11 @@ export const MessagesScreen: React.FC = () => {
 
   const availableMembers = users.filter(user => {
     if (user.id === currentUser.id) return false;
+    const isSystemAdmin =
+      Boolean(user.roles && user.roles.includes('admin')) ||
+      user.name.toLowerCase().trim() === 'system admin';
+    if (isSystemAdmin) return false;
+
     const haystack = `${user.name} ${user.companyName} ${user.designation}`.toLowerCase();
     return haystack.includes(memberQuery.trim().toLowerCase());
   });
