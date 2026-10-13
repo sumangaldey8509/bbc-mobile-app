@@ -103,6 +103,12 @@ export function addNotificationResponseListener(
   return getNotifications()?.addNotificationResponseReceivedListener(listener) ?? null;
 }
 
+export function addNotificationReceivedListener(
+  listener: (notification: import('expo-notifications').Notification) => void
+) {
+  return getNotifications()?.addNotificationReceivedListener(listener) ?? null;
+}
+
 export async function clearLastNotificationResponse() {
   await getNotifications()?.clearLastNotificationResponseAsync();
 }

@@ -25,11 +25,13 @@ import { AdminConsoleScreen } from '../screens/admin/AdminConsoleScreen';
 import {
   NotificationResponse,
   addNotificationResponseListener,
+  addNotificationReceivedListener,
   clearLastNotificationResponse,
   getLastNotificationResponse,
   getMessageThreadIdFromNotification,
   registerAndroidPushNotifications,
 } from '../services/pushNotifications';
+import { markMessagesDeliveredRequest } from '../services/messageApi';
 
 import { StoryViewerModal } from '../components/StoryViewerModal';
 import { DigitalBusinessCardModal } from '../components/DigitalBusinessCardModal';
@@ -131,8 +133,16 @@ export const AppNavigator: React.FC = () => {
       });
 
     const subscription = addNotificationResponseListener(handleResponse);
+    const receivedSubscription = addNotificationReceivedListener((notification) => {
+      const data = notification?.request?.content?.data;
+      if (data?.type === 'message') {
+        void markMessagesDeliveredRequest().catch(() => {});
+      }
+    });
+
     return () => {
       subscription?.remove();
+      receivedSubscription?.remove();
     };
   }, []);
 

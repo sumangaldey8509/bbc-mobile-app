@@ -521,6 +521,55 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           };
         });
       },
+      onMessagesDelivered: (payload) => {
+        const myId = currentUserRef.current?.id;
+        if (!myId || String(payload.recipientId) === String(myId)) return;
+
+        setMessages((prev) => {
+          const next = { ...prev };
+          let changed = false;
+          const targetThreadIds = payload.threadIds || (payload.threadId ? [payload.threadId] : Object.keys(next));
+          for (const threadId of targetThreadIds) {
+            if (!next[threadId]) continue;
+            const updated = next[threadId].map((m) => {
+              if ((m.isMe || String(m.senderId) === String(myId)) && m.receiptStatus === 'sent') {
+                changed = true;
+                return {
+                  ...m,
+                  deliveredAt: payload.deliveredAt,
+                  receiptStatus: 'delivered' as const,
+                };
+              }
+              return m;
+            });
+            if (changed) next[threadId] = updated;
+          }
+          return changed ? next : prev;
+        });
+      },
+      onMessageRead: (payload) => {
+        const myId = currentUserRef.current?.id;
+        if (!myId || String(payload.readerId) === String(myId)) return;
+
+        setMessages((prev) => {
+          const threadMsgs = prev[payload.threadId];
+          if (!threadMsgs) return prev;
+          let changed = false;
+          const updated = threadMsgs.map((m) => {
+            if ((m.isMe || String(m.senderId) === String(myId)) && m.receiptStatus !== 'seen') {
+              changed = true;
+              return {
+                ...m,
+                seenAt: payload.seenAt,
+                receiptStatus: 'seen' as const,
+              };
+            }
+            return m;
+          });
+          if (!changed) return prev;
+          return { ...prev, [payload.threadId]: updated };
+        });
+      },
     });
 
     return () => {
