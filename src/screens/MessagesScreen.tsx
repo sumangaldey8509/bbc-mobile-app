@@ -13,6 +13,9 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Animated,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute } from '@react-navigation/native';
@@ -33,7 +36,7 @@ import {
 import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
 import { Header } from '../components/Header';
-import { MessageThread } from '../types';
+import { MessageThread, Message } from '../types';
 import { MessagesScreenSkeleton } from '../components/SkeletonLoader';
 import {
   fetchMessageThreadsRequest,
@@ -42,8 +45,15 @@ import {
   sendThreadMessageRequest,
   markThreadReadRequest,
   markMessagesDeliveredRequest,
+  sendTypingStatusRequest,
 } from '../services/messageApi';
-import { subscribeToFeedRealtime } from '../services/realtimeSubscription';
+import {
+  subscribeToFeedRealtime,
+  broadcastTyping,
+  broadcastMessageDelivered,
+  broadcastMessageRead,
+  ensureRealtimeConnected,
+} from '../services/realtimeSubscription';
 
 const formatTime = (value?: string) => {
   if (!value) return '';
@@ -56,6 +66,64 @@ const formatTime = (value?: string) => {
   return date.toLocaleDateString([], { day: '2-digit', month: 'short' });
 };
 
+const mergeReceiptStatus = (
+  oldStatus?: 'sent' | 'delivered' | 'seen',
+  newStatus?: 'sent' | 'delivered' | 'seen'
+): 'sent' | 'delivered' | 'seen' => {
+  if (oldStatus === 'seen' || newStatus === 'seen') return 'seen';
+  if (oldStatus === 'delivered' || newStatus === 'delivered') return 'delivered';
+  return newStatus || oldStatus || 'sent';
+};
+
+const TypingAnimation: React.FC = () => {
+  const dot1 = useRef(new Animated.Value(0)).current;
+  const dot2 = useRef(new Animated.Value(0)).current;
+  const dot3 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const createAnim = (val: Animated.Value, delay: number) => {
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(val, {
+            toValue: -5,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+          Animated.timing(val, {
+            toValue: 0,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+          Animated.delay(350),
+        ])
+      );
+    };
+
+    const a1 = createAnim(dot1, 0);
+    const a2 = createAnim(dot2, 140);
+    const a3 = createAnim(dot3, 280);
+
+    a1.start();
+    a2.start();
+    a3.start();
+
+    return () => {
+      a1.stop();
+      a2.stop();
+      a3.stop();
+    };
+  }, [dot1, dot2, dot3]);
+
+  return (
+    <View style={styles.typingDotsContainer}>
+      <Animated.View style={[styles.typingDot, { transform: [{ translateY: dot1 }] }]} />
+      <Animated.View style={[styles.typingDot, { transform: [{ translateY: dot2 }] }]} />
+      <Animated.View style={[styles.typingDot, { transform: [{ translateY: dot3 }] }]} />
+    </View>
+  );
+};
+
 export const MessagesScreen: React.FC = () => {
   const {
     users,
@@ -66,7 +134,7 @@ export const MessagesScreen: React.FC = () => {
   } = useApp();
 
   const [messageThreads, setMessageThreads] = useState<MessageThread[]>([]);
-  const [messages, setMessages] = useState<Record<string, import('../types').Message[]>>({});
+  const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [activeThread, setActiveThread] = useState<MessageThread | null>(null);
@@ -77,9 +145,15 @@ export const MessagesScreen: React.FC = () => {
   const [memberQuery, setMemberQuery] = useState('');
   const [startingMemberId, setStartingMemberId] = useState<string | null>(null);
   const [pickerError, setPickerError] = useState('');
+  const [isOtherTyping, setIsOtherTyping] = useState(false);
+  const [typingThreads, setTypingThreads] = useState<Record<string, boolean>>({});
+
   const messagesRef = useRef<ScrollView>(null);
   const activeThreadRef = useRef<MessageThread | null>(null);
   const openedNotificationThreadRef = useRef<string | null>(null);
+  const isSelfTypingRef = useRef(false);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const otherTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const route = useRoute<any>();
 
   const loadThreads = useCallback(async (silent = false) => {
@@ -113,9 +187,27 @@ export const MessagesScreen: React.FC = () => {
     if (!silent) setIsLoadingConversation(true);
     try {
       const response = await fetchThreadMessagesRequest(thread.id);
-      setMessages(prev => ({ ...prev, [thread.id]: response.items }));
+      setMessages(prev => {
+        const existingList = prev[thread.id] || [];
+        const existingMap = new Map(existingList.map(m => [m.id, m]));
+        const mergedItems = response.items.map(incoming => {
+          const old = existingMap.get(incoming.id);
+          if (!old) return incoming;
+          return {
+            ...incoming,
+            receiptStatus: mergeReceiptStatus(old.receiptStatus, incoming.receiptStatus),
+            deliveredAt: old.deliveredAt || incoming.deliveredAt || null,
+            seenAt: old.seenAt || incoming.seenAt || null,
+          };
+        });
+        return { ...prev, [thread.id]: mergedItems };
+      });
       try {
         await markThreadReadRequest(thread.id);
+        if (currentUser?.id) {
+          void broadcastMessageRead(thread.id, currentUser.id);
+        }
+        void markMessagesDeliveredRequest().catch(() => {});
         setMessageThreads(prev => prev.map(item => item.id === thread.id ? { ...item, unreadCount: 0 } : item));
       } catch (receiptError) {
         console.warn('[Messages] Could not mark conversation as seen:', receiptError);
@@ -125,16 +217,39 @@ export const MessagesScreen: React.FC = () => {
     } finally {
       if (!silent) setIsLoadingConversation(false);
     }
-  }, []);
+  }, [currentUser?.id]);
 
   useEffect(() => {
     if (!activeThread) return;
     void loadConversation(activeThread);
   }, [activeThread, loadConversation]);
 
+  // Track active thread ref and reset typing timers on thread switch
   useEffect(() => {
+    setIsOtherTyping(false);
+    if (otherTypingTimerRef.current) clearTimeout(otherTypingTimerRef.current);
+
+    if (isSelfTypingRef.current && activeThreadRef.current && currentUser?.id) {
+      isSelfTypingRef.current = false;
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      void broadcastTyping(activeThreadRef.current.id, currentUser.id, false);
+      void sendTypingStatusRequest(activeThreadRef.current.id, false).catch(() => {});
+    }
+
     activeThreadRef.current = activeThread;
-  }, [activeThread]);
+  }, [activeThread, currentUser?.id]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      if (otherTypingTimerRef.current) clearTimeout(otherTypingTimerRef.current);
+      if (isSelfTypingRef.current && activeThreadRef.current && currentUser?.id) {
+        void broadcastTyping(activeThreadRef.current.id, currentUser.id, false);
+        void sendTypingStatusRequest(activeThreadRef.current.id, false).catch(() => {});
+      }
+    };
+  }, [currentUser?.id]);
 
   // Acknowledge delivery of any pending messages when Messages screen mounts
   useEffect(() => {
@@ -143,9 +258,57 @@ export const MessagesScreen: React.FC = () => {
     });
   }, []);
 
-  // Realtime subscription for instant message delivery and read receipts
+  // Listen for AppState changes (e.g. app reopened from background) to re-sync delivery & read receipts
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        ensureRealtimeConnected();
+        void markMessagesDeliveredRequest().catch(() => {});
+        const open = activeThreadRef.current;
+        if (open) {
+          void markThreadReadRequest(open.id).catch(() => {});
+          if (currentUser?.id) {
+            void broadcastMessageRead(open.id, currentUser.id);
+          }
+        }
+      }
+    };
+
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      sub.remove();
+    };
+  }, [currentUser?.id]);
+
+  // Realtime subscription for instant messages, typing, delivery and read receipts
   useEffect(() => {
     const unsubscribe = subscribeToFeedRealtime({
+      onTyping: (payload) => {
+        const myId = currentUser?.id;
+        if (!myId || String(payload.userId) === String(myId)) return;
+
+        // Update list preview map
+        setTypingThreads((prev) => {
+          if (prev[payload.threadId] === payload.isTyping) return prev;
+          return { ...prev, [payload.threadId]: payload.isTyping };
+        });
+
+        // Update active thread typing indicator
+        const openThread = activeThreadRef.current;
+        if (openThread && String(openThread.id) === String(payload.threadId)) {
+          if (payload.isTyping) {
+            setIsOtherTyping(true);
+            if (otherTypingTimerRef.current) clearTimeout(otherTypingTimerRef.current);
+            otherTypingTimerRef.current = setTimeout(() => {
+              setIsOtherTyping(false);
+            }, 4000);
+            setTimeout(() => messagesRef.current?.scrollToEnd({ animated: true }), 50);
+          } else {
+            if (otherTypingTimerRef.current) clearTimeout(otherTypingTimerRef.current);
+            setIsOtherTyping(false);
+          }
+        }
+      },
       onNewMessage: (payload) => {
         const myId = currentUser?.id;
         if (!myId) return;
@@ -155,21 +318,38 @@ export const MessagesScreen: React.FC = () => {
         if (!isParticipant) return;
 
         const isMe = String(payload.senderId) === String(myId);
-        const incomingMsg: import('../types').Message = {
+        const incomingMsg: Message = {
           ...payload.message,
           isMe,
         };
 
-        // 1. Update message list in state for this thread
+        const openThread = activeThreadRef.current;
+        const isCurrentActive = openThread && String(openThread.id) === String(payload.threadId);
+
+        // Clear typing indicator for this sender immediately upon receiving message
+        if (!isMe) {
+          setIsOtherTyping(false);
+          setTypingThreads((prev) => ({ ...prev, [payload.threadId]: false }));
+        }
+
+        // 1. Update message list in state for this thread with safe receipt merge
         setMessages((prev) => {
           const currentThreadMessages = prev[payload.threadId] || [];
-          const exists = currentThreadMessages.some((m) => m.id === incomingMsg.id);
-          if (exists) {
+          const existsIndex = currentThreadMessages.findIndex((m) => m.id === incomingMsg.id);
+          if (existsIndex !== -1) {
+            const old = currentThreadMessages[existsIndex];
+            const merged: Message = {
+              ...old,
+              ...incomingMsg,
+              seenAt: old.seenAt || incomingMsg.seenAt || null,
+              deliveredAt: old.deliveredAt || incomingMsg.deliveredAt || null,
+              receiptStatus: mergeReceiptStatus(old.receiptStatus, incomingMsg.receiptStatus),
+            };
+            const updated = [...currentThreadMessages];
+            updated[existsIndex] = merged;
             return {
               ...prev,
-              [payload.threadId]: currentThreadMessages.map((m) =>
-                m.id === incomingMsg.id ? incomingMsg : m
-              ),
+              [payload.threadId]: updated,
             };
           }
           return {
@@ -179,13 +359,9 @@ export const MessagesScreen: React.FC = () => {
         });
 
         // 2. Update thread list (update preview, move conversation to top, update unread count)
-        const openThread = activeThreadRef.current;
-        const isCurrentActive = openThread && String(openThread.id) === String(payload.threadId);
-
         setMessageThreads((prev) => {
           const threadIndex = prev.findIndex((t) => String(t.id) === String(payload.threadId));
           if (threadIndex === -1) {
-            // New thread we don't have yet in state, fetch threads silently
             void loadThreads(true);
             return prev;
           }
@@ -203,67 +379,76 @@ export const MessagesScreen: React.FC = () => {
           return [updatedThread, ...remaining];
         });
 
-        // 3. If this conversation is currently open and we are the recipient, auto-mark as read immediately
+        // 3. Acknowledge delivery / read status immediately
         if (isCurrentActive && !isMe) {
+          // If conversation is open, mark seen
+          void broadcastMessageRead(payload.threadId, myId);
           void markThreadReadRequest(payload.threadId).catch((err) => {
             console.warn('[MessagesScreen] Failed auto markThreadRead on new_message:', err);
+          });
+        } else if (!isMe) {
+          // If conversation is not open, mark delivered
+          void broadcastMessageDelivered(payload.threadId, myId, incomingMsg.id);
+          void markMessagesDeliveredRequest().catch((err) => {
+            console.warn('[MessagesScreen] Failed auto markMessagesDelivered on new_message:', err);
           });
         }
       },
       onMessageRead: (payload) => {
         const myId = currentUser?.id;
         if (!myId) return;
-        const isParticipant = (payload.participants || []).some(
-          (p) => String(p) === String(myId)
-        );
-        if (!isParticipant) return;
+        if (String(payload.readerId) === String(myId)) return;
 
         // If other user read this conversation, mark all messages sent by me as 'seen'
-        if (String(payload.readerId) !== String(myId)) {
-          setMessages((prev) => {
-            const threadMsgs = prev[payload.threadId];
-            if (!threadMsgs) return prev;
-            return {
-              ...prev,
-              [payload.threadId]: threadMsgs.map((m) => {
-                if (m.isMe || String(m.senderId) === String(myId)) {
-                  return {
-                    ...m,
-                    seenAt: payload.seenAt,
-                    receiptStatus: 'seen' as const,
-                  };
-                }
-                return m;
-              }),
-            };
+        setMessages((prev) => {
+          const threadMsgs = prev[payload.threadId];
+          if (!threadMsgs) return prev;
+          let changed = false;
+          const updated = threadMsgs.map((m) => {
+            if ((m.isMe || String(m.senderId) === String(myId)) && m.receiptStatus !== 'seen') {
+              changed = true;
+              return {
+                ...m,
+                seenAt: payload.seenAt,
+                receiptStatus: 'seen' as const,
+              };
+            }
+            return m;
           });
-        }
+          if (!changed) return prev;
+          return {
+            ...prev,
+            [payload.threadId]: updated,
+          };
+        });
       },
       onMessagesDelivered: (payload) => {
         const myId = currentUser?.id;
         if (!myId) return;
+        if (String(payload.recipientId) === String(myId)) return;
 
         // If other user received/delivered messages, mark pending sent messages as 'delivered'
-        if (String(payload.recipientId) !== String(myId)) {
-          setMessages((prev) => {
-            const next = { ...prev };
-            let changed = false;
-            for (const threadId of Object.keys(next)) {
-              next[threadId] = next[threadId].map((m) => {
-                if ((m.isMe || String(m.senderId) === String(myId)) && m.receiptStatus === 'sent') {
-                  changed = true;
-                  return {
-                    ...m,
-                    deliveredAt: payload.deliveredAt,
-                    receiptStatus: 'delivered' as const,
-                  };
-                }
-                return m;
-              });
-            }
-            return changed ? next : prev;
-          });
-        }
+        setMessages((prev) => {
+          const next = { ...prev };
+          let changed = false;
+          const targetThreadIds = payload.threadIds || (payload.threadId ? [payload.threadId] : Object.keys(next));
+          for (const threadId of targetThreadIds) {
+            if (!next[threadId]) continue;
+            const updated = next[threadId].map((m) => {
+              if ((m.isMe || String(m.senderId) === String(myId)) && m.receiptStatus === 'sent') {
+                changed = true;
+                return {
+                  ...m,
+                  deliveredAt: payload.deliveredAt,
+                  receiptStatus: 'delivered' as const,
+                };
+              }
+              return m;
+            });
+            if (changed) next[threadId] = updated;
+          }
+          return changed ? next : prev;
+        });
       },
     });
 
@@ -275,7 +460,7 @@ export const MessagesScreen: React.FC = () => {
   useEffect(() => {
     const timer = setTimeout(() => messagesRef.current?.scrollToEnd({ animated: true }), 50);
     return () => clearTimeout(timer);
-  }, [currentMessages.length, activeThread?.id]);
+  }, [currentMessages.length, isOtherTyping, activeThread?.id]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -283,21 +468,71 @@ export const MessagesScreen: React.FC = () => {
     setIsRefreshing(false);
   };
 
+  const handleInputChange = useCallback((text: string) => {
+    setInputText(text);
+    const thread = activeThreadRef.current;
+    const myId = currentUser?.id;
+    if (!thread || !myId) return;
+
+    if (text.trim().length > 0) {
+      if (!isSelfTypingRef.current) {
+        isSelfTypingRef.current = true;
+        void broadcastTyping(thread.id, myId, true, currentUser.name);
+        void sendTypingStatusRequest(thread.id, true).catch(() => {});
+      }
+
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = setTimeout(() => {
+        isSelfTypingRef.current = false;
+        void broadcastTyping(thread.id, myId, false);
+        void sendTypingStatusRequest(thread.id, false).catch(() => {});
+      }, 2500);
+    } else {
+      if (isSelfTypingRef.current) {
+        isSelfTypingRef.current = false;
+        if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+        void broadcastTyping(thread.id, myId, false);
+        void sendTypingStatusRequest(thread.id, false).catch(() => {});
+      }
+    }
+  }, [currentUser?.id, currentUser?.name]);
+
   const handleSend = async () => {
     if (!activeThread || !inputText.trim() || isSending) return;
     const text = inputText.trim();
+    const threadId = activeThread.id;
+    const myId = currentUser?.id;
+
+    // Reset typing status immediately
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    if (isSelfTypingRef.current && myId) {
+      isSelfTypingRef.current = false;
+      void broadcastTyping(threadId, myId, false);
+      void sendTypingStatusRequest(threadId, false).catch(() => {});
+    }
+
     setInputText('');
     setIsSending(true);
     try {
-      const sent = await sendThreadMessageRequest(activeThread.id, text);
+      const sent = await sendThreadMessageRequest(threadId, text);
       setMessages(prev => {
-        const list = prev[activeThread.id] || [];
-        const exists = list.some(m => m.id === sent.id);
-        if (exists) return prev;
-        return { ...prev, [activeThread.id]: [...list, sent] };
+        const list = prev[threadId] || [];
+        const existsIndex = list.findIndex(m => m.id === sent.id);
+        if (existsIndex !== -1) {
+          const old = list[existsIndex];
+          const merged: Message = {
+            ...old,
+            ...sent,
+            receiptStatus: mergeReceiptStatus(old.receiptStatus, sent.receiptStatus),
+          };
+          const next = [...list];
+          next[existsIndex] = merged;
+          return { ...prev, [threadId]: next };
+        }
+        return { ...prev, [threadId]: [...list, sent] };
       });
       setMessageThreads(prev => {
-        const threadIndex = prev.findIndex(t => t.id === activeThread.id);
+        const threadIndex = prev.findIndex(t => t.id === threadId);
         if (threadIndex === -1) return prev;
         const current = prev[threadIndex];
         const updated = {
@@ -425,12 +660,18 @@ export const MessagesScreen: React.FC = () => {
                         {thread.participant.companyName}
                       </Text>
                     </View>
-                    <Text
-                      style={[styles.lastMessage, thread.unreadCount > 0 && styles.lastMessageUnread]}
-                      numberOfLines={1}
-                    >
-                      {thread.lastMessage}
-                    </Text>
+                    {typingThreads[thread.id] ? (
+                      <Text style={styles.typingPreviewText} numberOfLines={1}>
+                        typing...
+                      </Text>
+                    ) : (
+                      <Text
+                        style={[styles.lastMessage, thread.unreadCount > 0 && styles.lastMessageUnread]}
+                        numberOfLines={1}
+                      >
+                        {thread.lastMessage}
+                      </Text>
+                    )}
                   </View>
                 </TouchableOpacity>
               ))}
@@ -459,7 +700,14 @@ export const MessagesScreen: React.FC = () => {
               <Image source={{ uri: activeThread.participant.avatar }} style={styles.chatAvatar} />
               <View>
                 <Text style={styles.chatName}>{activeThread.participant.name}</Text>
-                <Text style={styles.chatCompany}>{activeThread.participant.companyName}</Text>
+                {isOtherTyping ? (
+                  <View style={styles.typingHeaderRow}>
+                    <Text style={styles.typingHeaderText}>typing</Text>
+                    <Text style={styles.typingDotsPulse}>...</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.chatCompany}>{activeThread.participant.companyName}</Text>
+                )}
               </View>
             </TouchableOpacity>
 
@@ -538,6 +786,13 @@ export const MessagesScreen: React.FC = () => {
                 </View>
               </View>
             ))}
+            {isOtherTyping && (
+              <View style={[styles.messageBubbleWrapper, styles.otherBubbleWrapper]}>
+                <View style={[styles.messageBubble, styles.otherBubble, styles.typingBubble]}>
+                  <TypingAnimation />
+                </View>
+              </View>
+            )}
           </ScrollView>
 
           {/* Message Input Bar */}
@@ -547,7 +802,7 @@ export const MessagesScreen: React.FC = () => {
               placeholder={`Message ${activeThread.participant.name.split(' ')[0]}...`}
               placeholderTextColor={colors.textMuted}
               value={inputText}
-              onChangeText={setInputText}
+              onChangeText={handleInputChange}
               editable={!isSending}
             />
             <TouchableOpacity
@@ -1088,5 +1343,46 @@ const styles = StyleSheet.create({
     paddingVertical: 36,
     fontSize: 13,
     color: colors.textMuted,
+  },
+  typingHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  typingHeaderText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.emerald,
+  },
+  typingDotsPulse: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.emerald,
+  },
+  typingBubble: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minHeight: 36,
+    minWidth: 54,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  typingDotsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4.5,
+  },
+  typingDot: {
+    width: 6.5,
+    height: 6.5,
+    borderRadius: 3.25,
+    backgroundColor: colors.textSecondary,
+  },
+  typingPreviewText: {
+    marginTop: 3,
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.emerald,
+    fontStyle: 'italic',
   },
 });

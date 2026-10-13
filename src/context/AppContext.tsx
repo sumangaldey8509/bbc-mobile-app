@@ -49,7 +49,13 @@ import {
   updatePostCommentRequest,
   deletePostCommentRequest,
 } from '../services/postApi';
-import { subscribeToFeedRealtime } from '../services/realtimeSubscription';
+import { AppState, AppStateStatus } from 'react-native';
+import {
+  subscribeToFeedRealtime,
+  broadcastMessageDelivered,
+  ensureRealtimeConnected,
+} from '../services/realtimeSubscription';
+import { markMessagesDeliveredRequest } from '../services/messageApi';
 import {
   fetchNotifications,
   markNotificationReadRequest,
@@ -499,6 +505,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (!isParticipant) return;
         const isMe = String(payload.senderId) === String(myId);
 
+        if (!isMe) {
+          // Immediately acknowledge delivery to sender in realtime and persist in database
+          void broadcastMessageDelivered(payload.threadId, myId, payload.message.id);
+          void markMessagesDeliveredRequest().catch(() => {});
+        }
+
         setMessages((prev) => {
           const currentThreadMessages = prev[payload.threadId] || [];
           const exists = currentThreadMessages.some((m) => m.id === payload.message.id);
@@ -513,6 +525,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     return () => {
       unsubscribe();
+    };
+  }, []);
+
+  // Sync delivered receipts whenever app enters foreground
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        ensureRealtimeConnected();
+        void markMessagesDeliveredRequest().catch(() => {});
+      }
+    };
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      sub.remove();
     };
   }, []);
 

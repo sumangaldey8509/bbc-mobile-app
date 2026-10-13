@@ -124,3 +124,10 @@ export function markMessagesDeliveredRequest() {
     method: 'PATCH',
   });
 }
+
+export function sendTypingStatusRequest(threadId: string, isTyping: boolean) {
+  return apiRequest<{ success: boolean }>(`/messages/threads/${threadId}/typing`, {
+    method: 'POST',
+    body: { isTyping },
+  });
+}

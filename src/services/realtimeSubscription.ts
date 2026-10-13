@@ -21,6 +21,16 @@ export interface MessageReadPayload {
 export interface MessagesDeliveredPayload {
   recipientId: string;
   deliveredAt: string;
+  threadId?: string;
+  threadIds?: string[];
+  messageIds?: string[];
+}
+
+export interface TypingPayload {
+  threadId: string;
+  userId: string;
+  userName?: string;
+  isTyping: boolean;
 }
 
 export interface FeedRealtimeHandlers {
@@ -35,6 +45,7 @@ export interface FeedRealtimeHandlers {
   onNewMessage?: (payload: NewMessagePayload) => void;
   onMessageRead?: (payload: MessageReadPayload) => void;
   onMessagesDelivered?: (payload: MessagesDeliveredPayload) => void;
+  onTyping?: (payload: TypingPayload) => void;
 }
 
 const formatTime = (value?: string) => {
@@ -197,8 +208,22 @@ function ensureFeedChannel() {
         const deliveredPayload: MessagesDeliveredPayload = {
           recipientId: String(payload.recipientId),
           deliveredAt: payload.deliveredAt || new Date().toISOString(),
+          threadId: payload.threadId ? String(payload.threadId) : undefined,
+          threadIds: payload.threadIds ? payload.threadIds.map(String) : undefined,
+          messageIds: payload.messageIds ? payload.messageIds.map(String) : undefined,
         };
         activeListeners.forEach((h) => h.onMessagesDelivered?.(deliveredPayload));
+      }
+    })
+    .on('broadcast', { event: 'typing' }, ({ payload }) => {
+      if (payload && payload.threadId && payload.userId) {
+        const typingPayload: TypingPayload = {
+          threadId: String(payload.threadId),
+          userId: String(payload.userId),
+          userName: payload.userName,
+          isTyping: Boolean(payload.isTyping),
+        };
+        activeListeners.forEach((h) => h.onTyping?.(typingPayload));
       }
     })
     .subscribe((status, err) => {
@@ -210,6 +235,99 @@ function ensureFeedChannel() {
     });
 
   return globalFeedChannel;
+}
+
+/**
+ * Broadcast typing status to conversation participants over Supabase.
+ */
+export async function broadcastTyping(
+  threadId: string,
+  userId: string,
+  isTyping: boolean,
+  userName?: string
+): Promise<void> {
+  const channel = ensureFeedChannel();
+  if (!channel) return;
+  try {
+    await channel.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: {
+        threadId,
+        userId,
+        userName,
+        isTyping,
+      },
+    });
+  } catch (err) {
+    console.warn('[Supabase Realtime] broadcastTyping failed:', err);
+  }
+}
+
+/**
+ * Broadcast immediate delivery acknowledgment to sender.
+ */
+export async function broadcastMessageDelivered(
+  threadId: string,
+  recipientId: string,
+  messageId?: string
+): Promise<void> {
+  const channel = ensureFeedChannel();
+  if (!channel) return;
+  try {
+    await channel.send({
+      type: 'broadcast',
+      event: 'messages_delivered',
+      payload: {
+        recipientId,
+        threadId,
+        threadIds: [threadId],
+        messageIds: messageId ? [messageId] : [],
+        deliveredAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    console.warn('[Supabase Realtime] broadcastMessageDelivered failed:', err);
+  }
+}
+
+/**
+ * Broadcast immediate read acknowledgment to sender.
+ */
+export async function broadcastMessageRead(
+  threadId: string,
+  readerId: string
+): Promise<void> {
+  const channel = ensureFeedChannel();
+  if (!channel) return;
+  try {
+    await channel.send({
+      type: 'broadcast',
+      event: 'message_read',
+      payload: {
+        threadId,
+        readerId,
+        seenAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    console.warn('[Supabase Realtime] broadcastMessageRead failed:', err);
+  }
+}
+
+/**
+ * Re-verifies channel connection if app resumes from background.
+ */
+export function ensureRealtimeConnected() {
+  if (!globalFeedChannel || (globalFeedChannel as any).state === 'closed' || (globalFeedChannel as any).state === 'errored') {
+    if (globalFeedChannel) {
+      try {
+        supabase.removeChannel(globalFeedChannel);
+      } catch (_) {}
+      globalFeedChannel = null;
+    }
+  }
+  return ensureFeedChannel();
 }
 
 /**
