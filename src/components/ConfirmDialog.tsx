@@ -4,9 +4,9 @@ import {
   Text,
   StyleSheet,
   Modal,
-  TouchableOpacity,
   ActivityIndicator,
   Pressable,
+  Platform,
 } from 'react-native';
 import { colors } from '../theme/colors';
 
@@ -42,45 +42,50 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 }) => {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-    <View style={styles.overlay}>
-      <Pressable
-        style={styles.backdrop}
-        onPress={loading ? undefined : onCancel}
-        accessibilityLabel="Dismiss dialog"
-      />
-      <View style={styles.card}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.message}>{message}</Text>
+      <View style={styles.overlay}>
+        <Pressable
+          style={styles.backdrop}
+          onPress={loading ? undefined : onCancel}
+          accessibilityLabel="Dismiss dialog"
+        />
+        <View style={styles.card}>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.message}>{message}</Text>
 
-        <View style={styles.actions}>
-          <TouchableOpacity
-            style={[styles.btn, styles.cancelBtn]}
-            onPress={onCancel}
-            disabled={loading}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.cancelText}>{cancelLabel}</Text>
-          </TouchableOpacity>
+          <View style={styles.actions}>
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.btn,
+                styles.cancelBtn,
+                pressed && { opacity: 0.7 },
+              ]}
+              onPress={onCancel}
+              disabled={loading}
+            >
+              <Text style={styles.cancelText}>{cancelLabel}</Text>
+            </Pressable>
 
-          <TouchableOpacity
-            style={[
-              styles.btn,
-              destructive ? styles.destructiveBtn : styles.confirmBtn,
-              loading && styles.btnDisabled,
-            ]}
-            onPress={onConfirm}
-            disabled={loading}
-            activeOpacity={0.85}
-          >
-            {loading ? (
-              <ActivityIndicator size="small" color={colors.white} />
-            ) : (
-              <Text style={styles.confirmText}>{confirmLabel}</Text>
-            )}
-          </TouchableOpacity>
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.btn,
+                destructive ? styles.destructiveBtn : styles.confirmBtn,
+                loading && styles.btnDisabled,
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={onConfirm}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <Text style={styles.confirmText}>{confirmLabel}</Text>
+              )}
+            </Pressable>
+          </View>
         </View>
       </View>
-    </View>
     </Modal>
   );
 };
@@ -92,6 +97,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    width: '100%',
+    height: '100%',
     zIndex: 1000,
     elevation: 1000,
     alignItems: 'center',
@@ -104,7 +111,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: colors.overlay,
+    // width: '100%',
+    height: '100%',
+    // backgroundColor: colors.overlay,
   },
   card: {
     width: '100%',
@@ -128,6 +137,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer', userSelect: 'none' } as any) : {}),
   },
   cancelBtn: {
     backgroundColor: colors.cardBgElevated,

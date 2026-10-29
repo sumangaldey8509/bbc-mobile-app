@@ -105,7 +105,15 @@ const MainTabs = () => {
 };
 
 export const AppNavigator: React.FC = () => {
-  const { isAuthenticated, isBootstrappingAuth, isAdmin, isProfileApproved } = useApp();
+  const {
+    isAuthenticated,
+    isBootstrappingAuth,
+    isAdmin,
+    isProfileApproved,
+    openNotifications,
+    refreshNotifications,
+    refreshConnectionStatuses,
+  } = useApp();
   const [isSplashVisible, setIsSplashVisible] = useState(true);
   const [navigationReady, setNavigationReady] = useState(false);
   const [pendingMessageThreadId, setPendingMessageThreadId] = useState<string | null>(null);
@@ -122,7 +130,16 @@ export const AppNavigator: React.FC = () => {
 
     const handleResponse = (response: NotificationResponse | null) => {
       const threadId = getMessageThreadIdFromNotification(response);
-      if (threadId) setPendingMessageThreadId(threadId);
+      if (threadId) {
+        setPendingMessageThreadId(threadId);
+        return;
+      }
+      const data = response?.notification?.request?.content?.data;
+      if (data?.type === 'connection_request' || data?.type === 'connection_accepted') {
+        openNotifications();
+        void refreshNotifications();
+        void refreshConnectionStatuses();
+      }
     };
 
     void getLastNotificationResponse()
@@ -138,6 +155,9 @@ export const AppNavigator: React.FC = () => {
       const data = notification?.request?.content?.data;
       if (data?.type === 'message') {
         void markMessagesDeliveredRequest().catch(() => {});
+      } else if (data?.type === 'connection_request' || data?.type === 'connection_accepted') {
+        void refreshNotifications();
+        void refreshConnectionStatuses();
       }
     });
 

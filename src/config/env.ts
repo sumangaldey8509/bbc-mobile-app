@@ -7,7 +7,7 @@
  */
 
 // Fallback LAN IP for physical mobile devices and simulators on the same WiFi.
-const DEFAULT_API_URL = 'http://192.168.0.245:5001/api';
+const DEFAULT_API_URL = 'http://192.168.0.101:5001/api';
 
 export const API_BASE_URL = (
   process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL

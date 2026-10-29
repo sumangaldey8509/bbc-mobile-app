@@ -62,6 +62,15 @@ import {
   markAllNotificationsReadRequest,
   clearAllNotificationsRequest,
 } from '../services/notificationApi';
+import {
+  fetchConnectionStatuses,
+  sendConnectionRequest,
+  acceptConnectionRequest,
+  rejectConnectionRequest,
+  cancelConnectionRequest,
+  removeConnection as removeConnectionApi,
+  ConnectionStatusesMap,
+} from '../services/connectionApi';
 import { ProfileStatus, ProfileCompletion } from '../types';
 import { tokenStorage } from '../utils/tokenStorage';
 import { unregisterCurrentPushToken } from '../services/pushNotifications';
@@ -155,7 +164,17 @@ interface AppContextType {
   markNotificationRead: (notifId: string) => void;
   markAllNotificationsRead: () => void;
   clearAllNotifications: () => void;
+  dismissNotification: (notifId: string) => void;
   refreshNotifications: () => Promise<void>;
+  
+  // Connections
+  connectionStatuses: ConnectionStatusesMap;
+  refreshConnectionStatuses: () => Promise<void>;
+  sendConnection: (targetUserId: string, note?: string) => Promise<boolean>;
+  acceptConnection: (params: { connectionId?: string; senderId?: string }) => Promise<boolean>;
+  rejectConnection: (params: { connectionId?: string; senderId?: string }) => Promise<boolean>;
+  cancelConnection: (params: { connectionId?: string; targetUserId?: string }) => Promise<boolean>;
+  removeConnection: (targetUserId: string, connectionId?: string) => Promise<boolean>;
   
   // Modal Handlers
   openStory: (story: Story) => void;
@@ -202,6 +221,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isLoadingComments, setIsLoadingComments] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<AppNotification[]>(MOCK_NOTIFICATIONS);
   const [requestedAdminAccessIds, setRequestedAdminAccessIds] = useState<string[]>([]);
+  const [connectionStatuses, setConnectionStatuses] = useState<ConnectionStatusesMap>({});
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isBootstrappingAuth, setIsBootstrappingAuth] = useState<boolean>(true);
 
@@ -233,6 +253,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [showDrawer, setShowDrawer] = useState(false);
   const [activeSearchQuery, setActiveSearchQuery] = useState('');
 
+  /** Fetch connection status map for all members. */
+  const refreshConnectionStatuses = async () => {
+    try {
+      const res = await fetchConnectionStatuses();
+      if (res && typeof res === 'object') {
+        setConnectionStatuses(res);
+      }
+    } catch {
+      // Keep existing statuses if backend is unreachable
+    }
+  };
+
   /** Fetch all registered members from the backend and populate the directory. */
   const refreshMembers = async () => {
     try {
@@ -241,6 +273,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const adapted = res.map(m => adaptBackendUser(m as any, (m as any).profileDetails));
         setUsers(adapted);
       }
+      void refreshConnectionStatuses();
     } catch {
       // Keep existing users if backend is unreachable
     }
@@ -330,6 +363,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         void refreshMembers();
         void refreshPosts();
         void refreshNotifications();
+        void refreshConnectionStatuses();
       } catch {
         // Token invalid / expired / server unreachable — drop it and show login.
         await tokenStorage.clear();
@@ -493,6 +527,65 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const myId = currentUserRef.current?.id;
         if (myId && String(incomingNotif.recipientId) === String(myId)) {
           setNotifications(prev => [incomingNotif, ...prev.filter(n => n.id !== incomingNotif.id)]);
+          if (incomingNotif.type === 'connection_request') {
+            setConnectionStatuses(prev => ({
+              ...prev,
+              [String(incomingNotif.senderId)]: {
+                status: 'pending_incoming',
+                connectionId: incomingNotif.connectionId,
+              },
+            }));
+          } else if (incomingNotif.type === 'connection_accepted') {
+            setConnectionStatuses(prev => ({
+              ...prev,
+              [String(incomingNotif.senderId)]: {
+                status: 'accepted',
+                connectionId: incomingNotif.connectionId,
+              },
+            }));
+          }
+        }
+      },
+      onConnectionCancelled: (payload) => {
+        console.log('[AppContext] Received live connection_cancelled:', payload);
+        const myId = currentUserRef.current?.id;
+        if (!myId) return;
+
+        // If I am the recipient (User B), User A cancelled their request
+        if (String(payload.recipientId) === String(myId)) {
+          // 1. Remove the connection_request notification from my list
+          setNotifications(prev =>
+            prev.filter(n =>
+              !(
+                (n.connectionId && String(n.connectionId) === String(payload.connectionId)) ||
+                (String(n.senderId) === String(payload.senderId) && (n.type === 'connection_request' || (n.type as string) === 'connection'))
+              )
+            )
+          );
+
+          // 2. Revert the connection status for User A back to 'none'
+          setConnectionStatuses(prev => {
+            const next = { ...prev };
+            delete next[String(payload.senderId)];
+            return next;
+          });
+        }
+      },
+      onConnectionRemoved: (payload) => {
+        console.log('[AppContext] Received live connection_removed:', payload);
+        const myId = currentUserRef.current?.id;
+        if (!myId) return;
+
+        const isUser1 = String(payload.user1Id) === String(myId);
+        const isUser2 = String(payload.user2Id) === String(myId);
+
+        if (isUser1 || isUser2) {
+          const peerId = isUser1 ? String(payload.user2Id) : String(payload.user1Id);
+          setConnectionStatuses(prev => {
+            const next = { ...prev };
+            delete next[peerId];
+            return next;
+          });
         }
       },
       onNewMessage: (payload) => {
@@ -1150,6 +1243,142 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setRequestedAdminAccessIds(prev => (prev.includes(userId) ? prev : [...prev, userId]));
   };
 
+  const sendConnection = async (targetUserId: string, note?: string): Promise<boolean> => {
+    const previous = connectionStatuses[targetUserId];
+    setConnectionStatuses(prev => ({
+      ...prev,
+      [targetUserId]: { status: 'pending_outgoing' },
+    }));
+
+    try {
+      const res = await sendConnectionRequest(targetUserId, note);
+      setConnectionStatuses(prev => ({
+        ...prev,
+        [targetUserId]: {
+          status: res.status === 'accepted' ? 'accepted' : 'pending_outgoing',
+          connectionId: res._id,
+        },
+      }));
+      return true;
+    } catch (err) {
+      setConnectionStatuses(prev => {
+        const next = { ...prev };
+        if (previous) {
+          next[targetUserId] = previous;
+        } else {
+          delete next[targetUserId];
+        }
+        return next;
+      });
+      throw err;
+    }
+  };
+
+  const acceptConnection = async (params: { connectionId?: string; senderId?: string }): Promise<boolean> => {
+    const peerId = params.senderId;
+    if (peerId) {
+      setConnectionStatuses(prev => ({
+        ...prev,
+        [peerId]: { status: 'accepted', connectionId: params.connectionId },
+      }));
+    }
+
+    // Update notification in local list to accepted
+    setNotifications(prev =>
+      prev.map(n =>
+        (params.connectionId && String(n.connectionId) === String(params.connectionId)) ||
+        (params.senderId && String(n.senderId) === String(params.senderId) && n.type === 'connection_request')
+          ? { ...n, type: 'connection_accepted', read: true }
+          : n
+      )
+    );
+
+    try {
+      const res = await acceptConnectionRequest(params);
+      if (peerId) {
+        setConnectionStatuses(prev => ({
+          ...prev,
+          [peerId]: { status: 'accepted', connectionId: res._id },
+        }));
+      } else {
+        void refreshConnectionStatuses();
+      }
+      return true;
+    } catch (err) {
+      void refreshConnectionStatuses();
+      throw err;
+    }
+  };
+
+  const rejectConnection = async (params: { connectionId?: string; senderId?: string }): Promise<boolean> => {
+    const peerId = params.senderId;
+    if (peerId) {
+      setConnectionStatuses(prev => {
+        const next = { ...prev };
+        delete next[peerId];
+        return next;
+      });
+    }
+
+    // Immediately remove the notification from local state
+    setNotifications(prev =>
+      prev.filter(n =>
+        !(
+          (params.connectionId && String(n.connectionId) === String(params.connectionId)) ||
+          (params.senderId && String(n.senderId) === String(params.senderId) && (n.type === 'connection_request' || (n.type as string) === 'connection'))
+        )
+      )
+    );
+
+    try {
+      await rejectConnectionRequest(params);
+      return true;
+    } catch (err) {
+      void refreshConnectionStatuses();
+      throw err;
+    }
+  };
+
+  const cancelConnection = async (params: { connectionId?: string; targetUserId?: string }): Promise<boolean> => {
+    const peerId = params.targetUserId;
+    if (peerId) {
+      setConnectionStatuses(prev => {
+        const next = { ...prev };
+        delete next[peerId];
+        return next;
+      });
+    }
+    try {
+      await cancelConnectionRequest(params);
+      return true;
+    } catch (err) {
+      void refreshConnectionStatuses();
+      throw err;
+    }
+  };
+
+  const removeConnection = async (targetUserId: string, connectionId?: string): Promise<boolean> => {
+    const previous = connectionStatuses[targetUserId];
+    setConnectionStatuses(prev => {
+      const next = { ...prev };
+      delete next[targetUserId];
+      return next;
+    });
+
+    try {
+      await removeConnectionApi({ targetUserId, connectionId });
+      return true;
+    } catch (err) {
+      if (previous) {
+        setConnectionStatuses(prev => ({
+          ...prev,
+          [targetUserId]: previous,
+        }));
+      }
+      throw err;
+    }
+  };
+
   // Modal helpers
   const openStory = (story: Story) => {
     setActiveStory(story);
@@ -1269,6 +1498,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   };
 
+  const dismissNotification = (notifId: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== notifId));
+  };
+
   const openDrawer = () => setShowDrawer(true);
   const closeDrawer = () => setShowDrawer(false);
 
@@ -1303,6 +1536,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         refreshPosts,
         refreshNotifications,
         markAllNotificationsRead,
+        connectionStatuses,
+        refreshConnectionStatuses,
+        sendConnection,
+        acceptConnection,
+        rejectConnection,
+        cancelConnection,
+        removeConnection,
 
         activeStory,
         showStoryViewer,
@@ -1347,6 +1587,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         requestAdminContactAccess,
         markNotificationRead,
         clearAllNotifications,
+        dismissNotification,
 
         openStory,
         closeStory,

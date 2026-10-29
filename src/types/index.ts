@@ -188,11 +188,12 @@ export interface AppNotification {
   senderCompany?: string;
   title: string;
   message: string;
-  type: 'like' | 'comment' | 'meeting' | 'referral' | 'deal' | 'general' | 'Like' | 'Comment' | 'Meeting' | 'Referral' | 'Deal' | 'General';
+  type: 'like' | 'comment' | 'meeting' | 'referral' | 'deal' | 'general' | 'Like' | 'Comment' | 'Meeting' | 'Referral' | 'Deal' | 'General' | 'connection_request' | 'connection_accepted' | 'Connection';
   timestamp: string;
   read: boolean;
   postId?: string;
   commentId?: string;
+  connectionId?: string;
   createdAt?: string;
   meetingDetails?: {
     date: string;

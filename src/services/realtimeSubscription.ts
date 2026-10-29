@@ -42,6 +42,8 @@ export interface FeedRealtimeHandlers {
   onUpdateComment?: (comment: PostComment) => void;
   onDeleteComment?: (payload: { postId: string; commentId: string; deletedCommentId?: string; commentsCount?: number }) => void;
   onNewNotification?: (notification: AppNotification) => void;
+  onConnectionCancelled?: (payload: { connectionId: string; senderId: string; recipientId: string }) => void;
+  onConnectionRemoved?: (payload: { connectionId: string; user1Id: string; user2Id: string }) => void;
   onNewMessage?: (payload: NewMessagePayload) => void;
   onMessageRead?: (payload: MessageReadPayload) => void;
   onMessagesDelivered?: (payload: MessagesDeliveredPayload) => void;
@@ -160,6 +162,18 @@ function ensureFeedChannel() {
           commentId: payload.commentId ? String(payload.commentId) : undefined,
         };
         activeListeners.forEach((h) => h.onNewNotification?.(notif));
+      }
+    })
+    .on('broadcast', { event: 'connection_cancelled' }, ({ payload }) => {
+      console.log('[Supabase Realtime] Received "connection_cancelled" broadcast:', payload);
+      if (payload) {
+        activeListeners.forEach((h) => h.onConnectionCancelled?.(payload));
+      }
+    })
+    .on('broadcast', { event: 'connection_removed' }, ({ payload }) => {
+      console.log('[Supabase Realtime] Received "connection_removed" broadcast:', payload);
+      if (payload) {
+        activeListeners.forEach((h) => h.onConnectionRemoved?.(payload));
       }
     })
     .on('broadcast', { event: 'new_message' }, ({ payload }) => {

@@ -7,11 +7,13 @@ import {
   TextInput,
   Image,
   TouchableOpacity,
+  Pressable,
   RefreshControl,
   ActivityIndicator,
   LayoutAnimation,
   Platform,
   UIManager,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -19,16 +21,21 @@ import {
   Building2,
   ShieldCheck,
   CalendarPlus,
-  Lock,
   QrCode,
   Check,
   ChevronDown,
   ChevronUp,
+  UserPlus,
+  UserCheck,
+  Clock,
+  UserX,
 } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
 import { InitialsAvatar } from '../components/InitialsAvatar';
 import { SearchScreenSkeleton } from '../components/SkeletonLoader';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { PremiumToast, ToastType } from '../components/PremiumToast';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -42,15 +49,236 @@ export const SearchScreen: React.FC = () => {
     setActiveSearchQuery,
     openDigitalBusinessCard,
     openLogOneToOne,
-    openRequestAdminAccess,
-    requestedAdminAccessIds,
     refreshMembers,
+    connectionStatuses,
+    sendConnection,
+    acceptConnection,
+    cancelConnection,
+    removeConnection,
   } = useApp();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedIndustry, setSelectedIndustry] = useState<string>('All');
   const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
+  const [connectingMemberId, setConnectingMemberId] = useState<string | null>(null);
+  const [menuMember, setMenuMember] = useState<any | null>(null);
+
+  const [confirmConfig, setConfirmConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    destructive?: boolean;
+    loading?: boolean;
+    onConfirm: () => void;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const [toast, setToast] = useState<{
+    visible: boolean;
+    type: ToastType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const showToast = (type: ToastType, title: string, message: string) => {
+    setToast({ visible: true, type, title, message });
+  };
+
+  const handleRemoveConnectionClick = (member: any) => {
+    setMenuMember(null);
+
+    setConfirmConfig({
+      visible: true,
+      title: 'Remove Connection',
+      message: `Are you sure you want to remove your connection with ${member.name}?`,
+      confirmLabel: 'Yes, Remove',
+      cancelLabel: 'Cancel',
+      destructive: true,
+      loading: false,
+      onConfirm: async () => {
+        setConfirmConfig(prev => ({ ...prev, loading: true }));
+        try {
+          const connInfo = connectionStatuses[member.id];
+          await removeConnection(member.id, connInfo?.connectionId);
+          setConfirmConfig(prev => ({ ...prev, visible: false, loading: false }));
+          showToast('info', 'Connection Removed', `You have removed your connection with ${member.name}.`);
+        } catch (err: any) {
+          setConfirmConfig(prev => ({ ...prev, visible: false, loading: false }));
+          showToast('error', 'Error', err?.message || 'Could not remove connection');
+        }
+      },
+    });
+  };
+
+  const handleConnectionPress = async (member: any) => {
+    const connInfo = connectionStatuses[member.id];
+    const status = connInfo?.status || 'none';
+
+    if (status === 'accepted') {
+      setMenuMember(member);
+      return;
+    }
+
+    if (status === 'pending_outgoing') {
+      setConfirmConfig({
+        visible: true,
+        title: 'Cancel Connection Request',
+        message: `Connection request already sent to ${member.name}. Would you like to cancel it?`,
+        confirmLabel: 'Cancel Request',
+        cancelLabel: 'Keep Pending',
+        destructive: true,
+        loading: false,
+        onConfirm: async () => {
+          setConfirmConfig(prev => ({ ...prev, loading: true }));
+          try {
+            await cancelConnection({ targetUserId: member.id, connectionId: connInfo?.connectionId });
+            setConfirmConfig(prev => ({ ...prev, visible: false, loading: false }));
+            showToast('info', 'Request Cancelled', `Connection request to ${member.name} has been cancelled.`);
+          } catch (err: any) {
+            setConfirmConfig(prev => ({ ...prev, visible: false, loading: false }));
+            showToast('error', 'Error', err?.message || 'Could not cancel request');
+          }
+        },
+      });
+      return;
+    }
+
+    if (status === 'pending_incoming') {
+      setConnectingMemberId(member.id);
+      try {
+        await acceptConnection({ senderId: member.id, connectionId: connInfo?.connectionId });
+        showToast('success', 'Connected!', `You are now connected with ${member.name}.`);
+      } catch (err: any) {
+        const isWithdrawn =
+          err?.status === 410 ||
+          err?.code === 'CONNECTION_WITHDRAWN' ||
+          (err?.message && err.message.toLowerCase().includes('withdrawn'));
+        if (isWithdrawn) {
+          showToast('warning', 'Request Withdrawn', 'This connection request was withdrawn by the sender.');
+        } else {
+          showToast('error', 'Notice', err?.message || 'Could not accept request');
+        }
+      } finally {
+        setConnectingMemberId(null);
+      }
+      return;
+    }
+
+    // Default 'none' -> Send connection request
+    setConnectingMemberId(member.id);
+    try {
+      await sendConnection(member.id);
+      showToast('success', 'Request Sent', `Connection request sent to ${member.name}.`);
+    } catch (err: any) {
+      showToast('error', 'Notice', err?.message || 'Could not send connection request');
+    } finally {
+      setConnectingMemberId(null);
+    }
+  };
+
+  const renderConnectionButton = (member: any) => {
+    const isConnecting = connectingMemberId === member.id;
+    const connInfo = connectionStatuses[member.id];
+    const status = connInfo?.status || 'none';
+
+    if (isConnecting) {
+      return (
+        <View style={[styles.connectionBtn, styles.connectionBtnDefault]}>
+          <ActivityIndicator size="small" color={colors.accentBlue} />
+        </View>
+      );
+    }
+
+    if (status === 'accepted') {
+      return (
+        <Pressable
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.connectionBtn,
+            styles.connectionBtnAccepted,
+            pressed && { opacity: 0.7 },
+          ]}
+          onPress={(e) => {
+            e?.stopPropagation?.();
+            handleConnectionPress(member);
+          }}
+        >
+          <UserCheck color={colors.emerald} size={13} strokeWidth={2.5} />
+          <Text style={styles.connectionTextAccepted}>Connected</Text>
+        </Pressable>
+      );
+    }
+
+    if (status === 'pending_outgoing') {
+      return (
+        <Pressable
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.connectionBtn,
+            styles.connectionBtnPending,
+            pressed && { opacity: 0.7 },
+          ]}
+          onPress={(e) => {
+            e?.stopPropagation?.();
+            handleConnectionPress(member);
+          }}
+        >
+          <Clock color={colors.textSecondary} size={13} strokeWidth={2} />
+          <Text style={styles.connectionTextPending}>Pending</Text>
+        </Pressable>
+      );
+    }
+
+    if (status === 'pending_incoming') {
+      return (
+        <Pressable
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.connectionBtn,
+            styles.connectionBtnIncoming,
+            pressed && { opacity: 0.7 },
+          ]}
+          onPress={(e) => {
+            e?.stopPropagation?.();
+            handleConnectionPress(member);
+          }}
+        >
+          <Check color={colors.white} size={13} strokeWidth={2.5} />
+          <Text style={styles.connectionTextIncoming}>Accept</Text>
+        </Pressable>
+      );
+    }
+
+    return (
+      <Pressable
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          styles.connectionBtn,
+          styles.connectionBtnDefault,
+          pressed && { opacity: 0.7 },
+        ]}
+        onPress={(e) => {
+          e?.stopPropagation?.();
+          handleConnectionPress(member);
+        }}
+      >
+        <UserPlus color={colors.accentBlue} size={13} strokeWidth={2} />
+        <Text style={styles.connectionTextDefault}>Connect</Text>
+      </Pressable>
+    );
+  };
 
   const toggleExpandMember = (memberId: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -190,7 +418,6 @@ export const SearchScreen: React.FC = () => {
                 </View>
               ) : (
                 filteredUsers.map(member => {
-                  const isAccessRequested = requestedAdminAccessIds.includes(member.id);
                   const isExpanded = expandedMemberId === member.id;
 
                   return (
@@ -296,24 +523,8 @@ export const SearchScreen: React.FC = () => {
                               <Text style={styles.scheduleBtnText}>1-to-1</Text>
                             </TouchableOpacity>
 
-                            {/* Request Full Details to Admin */}
-                            <TouchableOpacity
-                              style={[styles.adminRequestBtn, isAccessRequested && styles.adminRequestBtnSuccess]}
-                              onPress={() => openRequestAdminAccess(member)}
-                              activeOpacity={0.7}
-                            >
-                              {isAccessRequested ? (
-                                <>
-                                  <Check color={colors.emerald} size={13} strokeWidth={3} />
-                                  <Text style={styles.adminSuccessText}>Request Sent</Text>
-                                </>
-                              ) : (
-                                <>
-                                  <Lock color={colors.accentBlue} size={13} />
-                                  <Text style={styles.adminRequestText}>Request Intro</Text>
-                                </>
-                              )}
-                            </TouchableOpacity>
+                            {/* Send Connection Request */}
+                            {renderConnectionButton(member)}
                           </View>
                         </View>
                       )}
@@ -324,6 +535,88 @@ export const SearchScreen: React.FC = () => {
             </ScrollView>
           </>
         )}
+        {/* Popup Menu for Connected Member */}
+        <Modal
+          visible={!!menuMember}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setMenuMember(null)}
+        >
+          <Pressable
+            style={styles.menuOverlay}
+            onPress={() => setMenuMember(null)}
+          >
+            <Pressable
+              style={styles.menuContainer}
+              onPress={(e) => e.stopPropagation?.()}
+            >
+              <View style={styles.menuHeader}>
+                <Text style={styles.menuTitle} numberOfLines={1}>
+                  {menuMember?.name}
+                </Text>
+                <Text style={styles.menuSubtitle} numberOfLines={1}>
+                  {menuMember?.companyName || 'Council Member'}
+                </Text>
+              </View>
+
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  pressed && { opacity: 0.7, backgroundColor: colors.cardBgElevated },
+                ]}
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  if (menuMember) handleRemoveConnectionClick(menuMember);
+                }}
+              >
+                <View style={styles.menuItemIconBox}>
+                  <UserX color={colors.crimson} size={18} />
+                </View>
+                <View style={styles.menuItemTextCol}>
+                  <Text style={styles.menuItemTitle}>Remove Connection</Text>
+                  <Text style={styles.menuItemDesc}>Disconnect with this member</Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.menuCancelBtn,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  setMenuMember(null);
+                }}
+              >
+                <Text style={styles.menuCancelText}>Cancel</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* Unified Cross-Platform Confirmation Dialog */}
+        <ConfirmDialog
+          visible={confirmConfig.visible}
+          title={confirmConfig.title}
+          message={confirmConfig.message}
+          confirmLabel={confirmConfig.confirmLabel}
+          cancelLabel={confirmConfig.cancelLabel}
+          destructive={confirmConfig.destructive}
+          loading={confirmConfig.loading}
+          onConfirm={confirmConfig.onConfirm}
+          onCancel={() => setConfirmConfig(prev => ({ ...prev, visible: false }))}
+        />
+
+        {/* Unified Non-blocking Toast */}
+        <PremiumToast
+          visible={toast.visible}
+          type={toast.type}
+          title={toast.title}
+          message={toast.message}
+          onDismiss={() => setToast(prev => ({ ...prev, visible: false }))}
+        />
       </View>
     </SafeAreaView>
   );
@@ -631,5 +924,137 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: colors.emerald,
+  },
+  connectionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderWidth: 1,
+    gap: 4,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer', userSelect: 'none' } as any) : {}),
+  },
+  connectionBtnDefault: {
+    backgroundColor: colors.accentBlueLight,
+    borderColor: colors.accentBlueBorder,
+  },
+  connectionTextDefault: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.accentBlueDark,
+  },
+  connectionBtnAccepted: {
+    backgroundColor: colors.emeraldLight,
+    borderColor: colors.emeraldBorder,
+  },
+  connectionTextAccepted: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.emerald,
+  },
+  connectionBtnPending: {
+    backgroundColor: colors.cardBgElevated,
+    borderColor: colors.cardBorder,
+  },
+  connectionTextPending: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  connectionBtnIncoming: {
+    backgroundColor: colors.emerald,
+    borderColor: colors.emerald,
+  },
+  connectionTextIncoming: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.white,
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+    padding: 16,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+  },
+  menuContainer: {
+    backgroundColor: colors.cardBg,
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
+  },
+  menuHeader: {
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.cardBorder,
+    marginBottom: 8,
+  },
+  menuTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  menuSubtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    gap: 12,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  menuItemIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFEBEB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuItemTextCol: {
+    flex: 1,
+  },
+  menuItemTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.crimson,
+  },
+  menuItemDesc: {
+    fontSize: 11.5,
+    color: colors.textMuted,
+    marginTop: 1,
+  },
+  menuCancelBtn: {
+    marginTop: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: colors.cardBgElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  menuCancelText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textSecondary,
   },
 });

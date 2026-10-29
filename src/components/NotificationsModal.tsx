@@ -5,9 +5,14 @@ import {
   StyleSheet,
   Modal,
   TouchableOpacity,
+  Pressable,
   ScrollView,
   Image,
   RefreshControl,
+  ActivityIndicator,
+  Alert,
+  LayoutAnimation,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -23,10 +28,14 @@ import {
   Share2,
   Trophy,
   Filter,
+  UserPlus,
+  UserCheck,
+  Check,
 } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
 import { getPostByIdRequest } from '../services/postApi';
+import { PremiumToast, ToastType } from './PremiumToast';
 
 export const NotificationsModal: React.FC = () => {
   const {
@@ -39,10 +48,33 @@ export const NotificationsModal: React.FC = () => {
     refreshNotifications,
     posts,
     openComments,
+    users,
+    connectionStatuses,
+    acceptConnection,
+    rejectConnection,
+    openDigitalBusinessCard,
+    dismissNotification,
   } = useApp();
 
-  const [activeFilter, setActiveFilter] = useState<'all' | 'likes' | 'comments' | 'meetings'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'likes' | 'comments' | 'meetings' | 'connections'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [respondingNotifId, setRespondingNotifId] = useState<string | null>(null);
+
+  const [toast, setToast] = useState<{
+    visible: boolean;
+    type: ToastType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const showToast = (type: ToastType, title: string, message: string) => {
+    setToast({ visible: true, type, title, message });
+  };
 
   if (!showNotificationsModal) return null;
 
@@ -57,8 +89,85 @@ export const NotificationsModal: React.FC = () => {
     }
   };
 
+  const handleAcceptConnection = async (notif: any) => {
+    setRespondingNotifId(notif.id);
+    markNotificationRead(notif.id);
+    try {
+      await acceptConnection({
+        connectionId: notif.connectionId,
+        senderId: notif.senderId,
+      });
+      showToast('success', 'Connected!', `You are now connected with ${notif.senderName}.`);
+    } catch (err: any) {
+      console.warn('[NotificationsModal] Accept connection error:', err);
+      const isWithdrawn =
+        err?.status === 410 ||
+        err?.code === 'CONNECTION_WITHDRAWN' ||
+        (err?.message && err.message.toLowerCase().includes('withdrawn'));
+      if (isWithdrawn) {
+        if (Platform.OS !== 'web') {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        }
+        dismissNotification(notif.id);
+        showToast('warning', 'Request Withdrawn', 'This connection request was withdrawn by the sender.');
+      } else {
+        showToast('error', 'Notice', err?.message || 'Could not accept connection request');
+      }
+    } finally {
+      setRespondingNotifId(null);
+    }
+  };
+
+  const handleIgnoreConnection = async (notif: any) => {
+    setRespondingNotifId(notif.id);
+    markNotificationRead(notif.id);
+
+    // Instantly remove the card from User B's screen
+    if (Platform.OS !== 'web') {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
+    dismissNotification(notif.id);
+
+    try {
+      await rejectConnection({
+        connectionId: notif.connectionId,
+        senderId: notif.senderId,
+      });
+    } catch (err: any) {
+      console.warn('[NotificationsModal] Reject connection error:', err);
+    } finally {
+      setRespondingNotifId(null);
+    }
+  };
+
   const handleNotificationPress = async (notif: any) => {
     markNotificationRead(notif.id);
+
+    // If connection notification, view sender's card
+    if (notif.type === 'connection_request' || notif.type === 'connection_accepted') {
+      let sender = users.find(u => String(u.id) === String(notif.senderId));
+      if (!sender && notif.senderName) {
+        sender = {
+          id: String(notif.senderId || notif.id),
+          name: notif.senderName,
+          avatar: notif.senderAvatar,
+          companyName: notif.senderCompany || 'Council Member',
+          designation: 'Council Member',
+          membershipTier: 'Executive Member',
+          chapter: 'Kolkata Chapter',
+          yearJoined: '2024',
+          industry: 'Business',
+          isGstVerified: false,
+        } as any;
+      }
+      if (sender) {
+        closeNotifications();
+        setTimeout(() => {
+          openDigitalBusinessCard(sender);
+        }, 150);
+      }
+      return;
+    }
 
     // If notification has an associated post and is a comment/like, open comments for that post with comment highlighted
     if (notif.postId) {
@@ -85,12 +194,29 @@ export const NotificationsModal: React.FC = () => {
     if (activeFilter === 'likes') return lower === 'like';
     if (activeFilter === 'comments') return lower === 'comment';
     if (activeFilter === 'meetings') return lower === 'meeting' || lower === 'referral' || lower === 'deal';
+    if (activeFilter === 'connections') {
+      return lower === 'connection_request' || lower === 'connection_accepted' || lower === 'connection';
+    }
     return true;
   });
 
   const renderTypeIcon = (type: string) => {
     const lower = (type || '').toLowerCase();
     switch (lower) {
+      case 'connection_request':
+        return (
+          <View style={[styles.typeIconBadge, { backgroundColor: '#E0F2FE' }]}>
+            <UserPlus color={colors.accentBlue} size={12} />
+            <Text style={[styles.typeBadgeText, { color: colors.accentBlue }]}>REQUEST</Text>
+          </View>
+        );
+      case 'connection_accepted':
+        return (
+          <View style={[styles.typeIconBadge, { backgroundColor: '#D1FAE5' }]}>
+            <UserCheck color={colors.emerald} size={12} />
+            <Text style={[styles.typeBadgeText, { color: colors.emerald }]}>CONNECTED</Text>
+          </View>
+        );
       case 'like':
         return (
           <View style={[styles.typeIconBadge, { backgroundColor: '#FFEBEB' }]}>
@@ -258,6 +384,20 @@ export const NotificationsModal: React.FC = () => {
               Meetings & Deals
             </Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.filterChip, activeFilter === 'connections' && styles.filterChipActive]}
+            onPress={() => setActiveFilter('connections')}
+            activeOpacity={0.7}
+          >
+            <UserPlus
+              color={activeFilter === 'connections' ? colors.white : colors.accentBlue}
+              size={12}
+            />
+            <Text style={[styles.filterChipText, activeFilter === 'connections' && styles.filterChipTextActive]}>
+              Requests
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Scrollable Notification Cards */}
@@ -317,6 +457,58 @@ export const NotificationsModal: React.FC = () => {
 
                   <Text style={styles.notifMessage}>{notif.message}</Text>
 
+                  {/* Connection Request Action Buttons */}
+                  {notif.type === 'connection_request' && (
+                    <View style={styles.connectionActionRow}>
+                      {connectionStatuses[notif.senderId]?.status === 'accepted' ? (
+                        <View style={styles.connAcceptedPill}>
+                          <UserCheck color={colors.emerald} size={13} strokeWidth={2.5} />
+                          <Text style={styles.connAcceptedText}>Connected</Text>
+                        </View>
+                      ) : (
+                        <>
+                          <Pressable
+                            accessibilityRole="button"
+                            style={({ pressed }) => [
+                              styles.connAcceptBtn,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                            onPress={(e) => {
+                              e?.stopPropagation?.();
+                              handleAcceptConnection(notif);
+                            }}
+                            disabled={respondingNotifId === notif.id}
+                          >
+                            {respondingNotifId === notif.id ? (
+                              <ActivityIndicator size="small" color={colors.white} />
+                            ) : (
+                              <>
+                                <Check color={colors.white} size={13} strokeWidth={2.5} />
+                                <Text style={styles.connAcceptBtnText}>Accept</Text>
+                              </>
+                            )}
+                          </Pressable>
+
+                          <Pressable
+                            accessibilityRole="button"
+                            style={({ pressed }) => [
+                              styles.connDeclineBtn,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                            onPress={(e) => {
+                              e?.stopPropagation?.();
+                              handleIgnoreConnection(notif);
+                            }}
+                            disabled={respondingNotifId === notif.id}
+                          >
+                            <X color={colors.textSecondary} size={13} strokeWidth={2} />
+                            <Text style={styles.connDeclineBtnText}>Ignore</Text>
+                          </Pressable>
+                        </>
+                      )}
+                    </View>
+                  )}
+
                   {/* Meeting Specific Details Box */}
                   {notif.meetingDetails && (
                     <View style={styles.meetingMetaBox}>
@@ -339,6 +531,14 @@ export const NotificationsModal: React.FC = () => {
             })
           )}
         </ScrollView>
+
+        <PremiumToast
+          visible={toast.visible}
+          type={toast.type}
+          title={toast.title}
+          message={toast.message}
+          onDismiss={() => setToast(prev => ({ ...prev, visible: false }))}
+        />
       </SafeAreaView>
     </Modal>
   );
@@ -612,5 +812,62 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textPrimary,
     fontWeight: '600',
+  },
+  connectionActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+  },
+  connAcceptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.emerald,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    gap: 5,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer', userSelect: 'none' } as any) : {}),
+  },
+  connAcceptBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.white,
+  },
+  connDeclineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.cardBg,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    gap: 4,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer', userSelect: 'none' } as any) : {}),
+  },
+  connDeclineBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  connAcceptedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.emeraldLight,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    gap: 5,
+  },
+  connAcceptedText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.emerald,
   },
 });
