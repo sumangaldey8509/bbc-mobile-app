@@ -29,6 +29,8 @@ import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
 import { BrandLogo } from './BrandLogo';
 import { InitialsAvatar } from './InitialsAvatar';
+import { UserTierBadge } from './UserTierBadge';
+import { getUserTierInfo } from '../utils/userTierBadges';
 
 const { width } = Dimensions.get('window');
 
@@ -38,6 +40,7 @@ interface DrawerModalProps {
 
 export const DrawerModal: React.FC<DrawerModalProps> = ({ onNavigate }) => {
   const { showDrawer, closeDrawer, currentUser, logout, openDigitalBusinessCard, isAdmin } = useApp();
+  const tierInfo = getUserTierInfo(currentUser);
 
   if (!showDrawer) return null;
 
@@ -196,11 +199,13 @@ export const DrawerModal: React.FC<DrawerModalProps> = ({ onNavigate }) => {
               <InitialsAvatar
                 name={currentUser.name}
                 uri={currentUser.avatar || undefined}
+                user={currentUser}
                 size={56}
                 style={styles.avatar}
               />
               <View style={styles.userInfo}>
                 <View style={styles.nameRow}>
+                  <UserTierBadge user={currentUser} size={18} />
                   <Text style={styles.userName}>{currentUser.name}</Text>
                   {currentUser.isGstVerified && <ShieldCheck color={colors.emerald} size={14} />}
                 </View>
@@ -212,8 +217,11 @@ export const DrawerModal: React.FC<DrawerModalProps> = ({ onNavigate }) => {
                     {currentUser.companyName}
                   </Text>
                 ) : null}
-                <View style={styles.tierPill}>
-                  <Text style={styles.tierPillText}>{currentUser.membershipTier}</Text>
+                <View style={[styles.tierPill, { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: tierInfo.bgColor, borderColor: tierInfo.color, borderWidth: 1 }]}>
+                  <Image source={tierInfo.badgeAsset} style={{ width: 12, height: 12 }} resizeMode="contain" />
+                  <Text style={[styles.tierPillText, { color: tierInfo.color }]}>
+                    {tierInfo.label} • {currentUser.membershipTier}
+                  </Text>
                 </View>
               </View>
             </TouchableOpacity>

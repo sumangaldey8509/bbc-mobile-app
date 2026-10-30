@@ -38,6 +38,8 @@ import {
   CheckCheck,
 } from 'lucide-react-native';
 import { colors } from '../theme/colors';
+import { InitialsAvatar } from '../components/InitialsAvatar';
+import { UserTierBadge } from '../components/UserTierBadge';
 import { useApp } from '../context/AppContext';
 import { Header } from '../components/Header';
 import { MessageThread, Message } from '../types';
@@ -825,13 +827,21 @@ export const MessagesScreen: React.FC = () => {
                     activeOpacity={0.7}
                   >
                     <View style={styles.avatarWrapper}>
-                      <Image source={{ uri: thread.participant.avatar }} style={styles.avatar} />
+                      <InitialsAvatar
+                        name={thread.participant.name}
+                        uri={thread.participant.avatar}
+                        user={thread.participant}
+                        size={48}
+                      />
                       {thread.unreadCount > 0 && <View style={styles.unreadDot} />}
                     </View>
 
                     <View style={styles.threadInfo}>
                       <View style={styles.threadNameRow}>
-                        <Text style={styles.participantName}>{thread.participant.name}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                          <UserTierBadge user={thread.participant} size={15} />
+                          <Text style={styles.participantName} numberOfLines={1}>{thread.participant.name}</Text>
+                        </View>
                         <Text style={styles.messageTime}>{thread.lastMessageTime}</Text>
                       </View>
                       <View style={styles.companyRow}>
@@ -877,9 +887,17 @@ export const MessagesScreen: React.FC = () => {
               onPress={() => openDigitalBusinessCard(activeThread.participant)}
               activeOpacity={0.8}
             >
-              <Image source={{ uri: activeThread.participant.avatar }} style={styles.chatAvatar} />
+              <InitialsAvatar
+                name={activeThread.participant.name}
+                uri={activeThread.participant.avatar}
+                user={activeThread.participant}
+                size={40}
+              />
               <View>
-                <Text style={styles.chatName}>{activeThread.participant.name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <UserTierBadge user={activeThread.participant} size={15} />
+                  <Text style={styles.chatName}>{activeThread.participant.name}</Text>
+                </View>
                 {isOtherTyping ? (
                   <View style={styles.typingHeaderRow}>
                     <Text style={styles.typingHeaderText}>typing</Text>
@@ -1087,9 +1105,17 @@ export const MessagesScreen: React.FC = () => {
                   onPress={() => void startConversation(member.id)}
                   disabled={startingMemberId !== null}
                 >
-                  <Image source={{ uri: member.avatar }} style={styles.memberAvatar} />
+                  <InitialsAvatar
+                    name={member.name}
+                    uri={member.avatar}
+                    user={member}
+                    size={44}
+                  />
                   <View style={styles.memberInfo}>
-                    <Text style={styles.memberName}>{member.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <UserTierBadge user={member} size={15} />
+                      <Text style={styles.memberName}>{member.name}</Text>
+                    </View>
                     <Text style={styles.memberCompany} numberOfLines={1}>
                       {member.designation}{member.companyName ? ` · ${member.companyName}` : ''}
                     </Text>

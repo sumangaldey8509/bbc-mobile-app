@@ -33,6 +33,7 @@ import {
 import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
 import { InitialsAvatar } from '../components/InitialsAvatar';
+import { UserTierBadge } from '../components/UserTierBadge';
 import { SearchScreenSkeleton } from '../components/SkeletonLoader';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { PremiumToast, ToastType } from '../components/PremiumToast';
@@ -438,6 +439,7 @@ export const SearchScreen: React.FC = () => {
                           <InitialsAvatar
                             name={member.name}
                             uri={member.avatar || undefined}
+                            user={member}
                             size={50}
                             style={styles.avatar}
                           />
@@ -445,6 +447,7 @@ export const SearchScreen: React.FC = () => {
 
                         <View style={styles.headerInfo}>
                           <View style={styles.nameRow}>
+                            <UserTierBadge user={member} size={18} />
                             <Text style={styles.memberName}>{member.name}</Text>
                             {member.isGstVerified && <ShieldCheck color={colors.emerald} size={15} />}
                           </View>

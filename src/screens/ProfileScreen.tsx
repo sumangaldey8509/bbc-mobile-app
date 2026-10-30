@@ -30,11 +30,14 @@ import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
 import { Header } from '../components/Header';
 import { InitialsAvatar } from '../components/InitialsAvatar';
+import { UserTierBadge } from '../components/UserTierBadge';
+import { getUserTierInfo } from '../utils/userTierBadges';
 import { ProfileScreenSkeleton } from '../components/SkeletonLoader';
 
 export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const { currentUser, openDigitalBusinessCard, logout, refreshProfileStatus } = useApp();
+  const tierInfo = getUserTierInfo(currentUser);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -86,224 +89,227 @@ export const ProfileScreen: React.FC = () => {
             />
           }
         >
-        {/* Cover & Profile Banner */}
-        <View style={styles.coverContainer}>
-          {currentUser.coverImage ? (
-            <Image source={{ uri: currentUser.coverImage }} style={styles.coverImage} />
-          ) : (
-            <View style={styles.coverPlaceholder}>
-              <Text style={styles.coverPlaceholderText}>
-                {currentUser.companyName || currentUser.name}
+          {/* Cover & Profile Banner */}
+          <View style={styles.coverContainer}>
+            {currentUser.coverImage ? (
+              <Image source={{ uri: currentUser.coverImage }} style={styles.coverImage} />
+            ) : (
+              <View style={styles.coverPlaceholder}>
+                <Text style={styles.coverPlaceholderText}>
+                  {currentUser.companyName || currentUser.name}
+                </Text>
+              </View>
+            )}
+            <View style={styles.coverOverlay} />
+
+            {/* Floating Return to Home Button */}
+            <TouchableOpacity
+              style={styles.floatingHomeBtn}
+              onPress={handleGoHome}
+              activeOpacity={0.8}
+              accessibilityLabel="Go to Homepage"
+            >
+              <ArrowLeft color={colors.white} size={14} />
+              <Text style={styles.floatingHomeBtnText}>Home</Text>
+            </TouchableOpacity>
+
+            <View style={[styles.profileBadgeTop, { flexDirection: 'row', alignItems: 'center', gap: 5 }]}>
+              <Image source={tierInfo.badgeAsset} style={{ width: 14, height: 14 }} resizeMode="contain" />
+              <Text style={styles.profileBadgeTopText}>{tierInfo.label.toUpperCase()} • {currentUser.membershipTier.toUpperCase()}</Text>
+            </View>
+          </View>
+
+          {/* Profile Card Overlay */}
+          <View style={styles.profileInfoCard}>
+            <View style={styles.avatarRow}>
+              <InitialsAvatar
+                name={currentUser.name}
+                uri={currentUser.avatar || undefined}
+                user={currentUser}
+                size={72}
+                style={styles.avatar}
+              />
+              <TouchableOpacity
+                style={styles.cardBtn}
+                onPress={() => openDigitalBusinessCard()}
+                activeOpacity={0.8}
+              >
+                <QrCode color={colors.white} size={15} />
+                <Text style={styles.cardBtnText}>Digital Card</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.nameSection}>
+              <View style={styles.nameVerifiedRow}>
+                <UserTierBadge user={currentUser} size={22} />
+                <Text style={styles.name}>{currentUser.name}</Text>
+                {currentUser.isGstVerified && <ShieldCheck color={colors.emerald} size={18} />}
+              </View>
+              <Text style={styles.designation}>{currentUser.designation || 'Member'}</Text>
+              {currentUser.companyName ? (
+                <View style={styles.companyRow}>
+                  <Building2 color={colors.primary} size={14} />
+                  <Text style={styles.companyName}>{currentUser.companyName}</Text>
+                </View>
+              ) : null}
+              <Text style={styles.chapterText}>
+                {currentUser.chapter} • Member Since {currentUser.yearJoined}
               </Text>
             </View>
-          )}
-          <View style={styles.coverOverlay} />
 
-          {/* Floating Return to Home Button */}
-          <TouchableOpacity
-            style={styles.floatingHomeBtn}
-            onPress={handleGoHome}
-            activeOpacity={0.8}
-            accessibilityLabel="Go to Homepage"
-          >
-            <ArrowLeft color={colors.white} size={14} />
-            <Text style={styles.floatingHomeBtnText}>Home</Text>
-          </TouchableOpacity>
-
-          <View style={styles.profileBadgeTop}>
-            <Text style={styles.profileBadgeTopText}>{currentUser.membershipTier.toUpperCase()}</Text>
+            {/* Quick Metrics Bar */}
+            <View style={styles.metricsBar}>
+              <View style={styles.metricItem}>
+                <Text style={styles.metricNumber}>{currentUser.stats.oneToOneCount}</Text>
+                <Text style={styles.metricLabel}>1-to-1s</Text>
+              </View>
+              <View style={styles.metricDivider} />
+              <View style={styles.metricItem}>
+                <Text style={styles.metricNumber}>{currentUser.stats.referralsGiven}</Text>
+                <Text style={styles.metricLabel}>Referrals</Text>
+              </View>
+              <View style={styles.metricDivider} />
+              <View style={styles.metricItem}>
+                <Text style={styles.metricCrimson}>₹ {(currentUser.stats.businessValueInLakhs / 100).toFixed(2)} Cr</Text>
+                <Text style={styles.metricLabel}>Total Deals</Text>
+              </View>
+            </View>
           </View>
-        </View>
 
-        {/* Profile Card Overlay */}
-        <View style={styles.profileInfoCard}>
-          <View style={styles.avatarRow}>
-            <InitialsAvatar
-              name={currentUser.name}
-              uri={currentUser.avatar || undefined}
-              size={72}
-              style={styles.avatar}
-            />
+          {/* Business Specifications Grid */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionHeader}>VERIFIED BUSINESS PROFILE</Text>
+
+            <View style={styles.specsGrid}>
+              <View style={styles.specItem}>
+                <Text style={styles.specLabel}>GST NUMBER {currentUser.isGstVerified ? '(VERIFIED)' : ''}</Text>
+                <Text style={styles.specGst}>{currentUser.gstNumber || 'Not provided'}</Text>
+              </View>
+
+              <View style={styles.specItem}>
+                <Text style={styles.specLabel}>ANNUAL TURNOVER</Text>
+                <Text style={styles.specValue}>{currentUser.turnover || 'Not disclosed'}</Text>
+              </View>
+
+              <View style={styles.specItem}>
+                <Text style={styles.specLabel}>INDUSTRY</Text>
+                <Text style={styles.specValue}>{currentUser.industry || 'General'}</Text>
+              </View>
+
+              <View style={styles.specItem}>
+                <Text style={styles.specLabel}>OFFICE LOCATION</Text>
+                <Text style={styles.specValue}>{currentUser.location || 'Not provided'}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Company Bio */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionHeader}>ABOUT THE COMPANY</Text>
+            <Text style={styles.bioText}>{currentUser.bio || 'No company bio provided yet.'}</Text>
+          </View>
+
+          {/* Verified Capability Documents / Brochures */}
+          {currentUser.requirementDocs && currentUser.requirementDocs.length > 0 ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionHeader}>COMPANY BROCHURES & DOCUMENTS</Text>
+              {currentUser.requirementDocs.map((doc, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.docItem}
+                  onPress={() => {
+                    if (doc.publicLink) {
+                      Linking.openURL(doc.publicLink).catch(() => {
+                        Alert.alert('Error', 'Could not open document link.');
+                      });
+                    } else {
+                      Alert.alert('View Document', `Opening ${doc.title}`);
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <FileText color={colors.crimson} size={18} />
+                  <View style={styles.docInfo}>
+                    <Text style={styles.docTitle} numberOfLines={1}>{doc.title}</Text>
+                    <Text style={styles.docMeta}>{doc.type || 'Document'} {doc.size ? `• ${doc.size}` : ''} • Verified Document</Text>
+                  </View>
+                  <Text style={styles.docAction}>View</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+
+          {/* Official Contact Info */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionHeader}>OFFICIAL CONTACT DETAILS</Text>
+
+            <View style={styles.contactItem}>
+              <Mail color={colors.primary} size={15} />
+              <Text style={styles.contactText}>{currentUser.contact?.email || '—'}</Text>
+            </View>
+
+            <View style={styles.contactItem}>
+              <Phone color={colors.primary} size={15} />
+              <Text style={styles.contactText}>{currentUser.contact?.phone || '—'}</Text>
+            </View>
+
+            <View style={styles.contactItem}>
+              <Globe color={colors.primary} size={15} />
+              <Text style={styles.contactText}>{currentUser.contact?.website || '—'}</Text>
+            </View>
+
+            <View style={styles.contactItem}>
+              <MapPin color={colors.primary} size={15} />
+              <Text style={styles.contactText}>{currentUser.contact?.officeAddress || '—'}</Text>
+            </View>
+          </View>
+
+          {/* Action Buttons */}
+          <View style={styles.actionsBox}>
             <TouchableOpacity
-              style={styles.cardBtn}
+              style={styles.homeActionBtn}
+              onPress={handleGoHome}
+              activeOpacity={0.8}
+              accessibilityLabel="Go to Homepage"
+            >
+              <Home color={colors.white} size={16} />
+              <Text style={styles.homeBtnText}>Go to Homepage</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.primaryActionBtn}
               onPress={() => openDigitalBusinessCard()}
               activeOpacity={0.8}
             >
-              <QrCode color={colors.white} size={15} />
-              <Text style={styles.cardBtnText}>Digital Card</Text>
+              <CreditCard color={colors.white} size={16} />
+              <Text style={styles.primaryBtnText}>View Digital Visiting Card</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryActionBtn}
+              onPress={() => {
+                Alert.alert(
+                  'Member Profile Link',
+                  `BBC profile link: https://bengalbusinesscouncil.com/members/${currentUser.id}`
+                );
+              }}
+              activeOpacity={0.8}
+            >
+              <Share2 color={colors.primary} size={16} />
+              <Text style={styles.secondaryBtnText}>Share My Profile</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.logoutActionBtn}
+              onPress={() => {
+                logout();
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.logoutBtnText}>Sign Out / Switch Account</Text>
             </TouchableOpacity>
           </View>
-
-          <View style={styles.nameSection}>
-            <View style={styles.nameVerifiedRow}>
-              <Text style={styles.name}>{currentUser.name}</Text>
-              {currentUser.isGstVerified && <ShieldCheck color={colors.emerald} size={18} />}
-            </View>
-            <Text style={styles.designation}>{currentUser.designation || 'Member'}</Text>
-            {currentUser.companyName ? (
-              <View style={styles.companyRow}>
-                <Building2 color={colors.primary} size={14} />
-                <Text style={styles.companyName}>{currentUser.companyName}</Text>
-              </View>
-            ) : null}
-            <Text style={styles.chapterText}>
-              {currentUser.chapter} • Member Since {currentUser.yearJoined}
-            </Text>
-          </View>
-
-          {/* Quick Metrics Bar */}
-          <View style={styles.metricsBar}>
-            <View style={styles.metricItem}>
-              <Text style={styles.metricNumber}>{currentUser.stats.oneToOneCount}</Text>
-              <Text style={styles.metricLabel}>1-to-1s</Text>
-            </View>
-            <View style={styles.metricDivider} />
-            <View style={styles.metricItem}>
-              <Text style={styles.metricNumber}>{currentUser.stats.referralsGiven}</Text>
-              <Text style={styles.metricLabel}>Referrals</Text>
-            </View>
-            <View style={styles.metricDivider} />
-            <View style={styles.metricItem}>
-              <Text style={styles.metricCrimson}>₹ {(currentUser.stats.businessValueInLakhs / 100).toFixed(2)} Cr</Text>
-              <Text style={styles.metricLabel}>Total Deals</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Business Specifications Grid */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionHeader}>VERIFIED BUSINESS PROFILE</Text>
-
-          <View style={styles.specsGrid}>
-            <View style={styles.specItem}>
-              <Text style={styles.specLabel}>GST NUMBER {currentUser.isGstVerified ? '(VERIFIED)' : ''}</Text>
-              <Text style={styles.specGst}>{currentUser.gstNumber || 'Not provided'}</Text>
-            </View>
-
-            <View style={styles.specItem}>
-              <Text style={styles.specLabel}>ANNUAL TURNOVER</Text>
-              <Text style={styles.specValue}>{currentUser.turnover || 'Not disclosed'}</Text>
-            </View>
-
-            <View style={styles.specItem}>
-              <Text style={styles.specLabel}>INDUSTRY</Text>
-              <Text style={styles.specValue}>{currentUser.industry || 'General'}</Text>
-            </View>
-
-            <View style={styles.specItem}>
-              <Text style={styles.specLabel}>OFFICE LOCATION</Text>
-              <Text style={styles.specValue}>{currentUser.location || 'Not provided'}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Company Bio */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionHeader}>ABOUT THE COMPANY</Text>
-          <Text style={styles.bioText}>{currentUser.bio || 'No company bio provided yet.'}</Text>
-        </View>
-
-        {/* Verified Capability Documents / Brochures */}
-        {currentUser.requirementDocs && currentUser.requirementDocs.length > 0 ? (
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionHeader}>COMPANY BROCHURES & DOCUMENTS</Text>
-            {currentUser.requirementDocs.map((doc, idx) => (
-              <TouchableOpacity
-                key={idx}
-                style={styles.docItem}
-                onPress={() => {
-                  if (doc.publicLink) {
-                    Linking.openURL(doc.publicLink).catch(() => {
-                      Alert.alert('Error', 'Could not open document link.');
-                    });
-                  } else {
-                    Alert.alert('View Document', `Opening ${doc.title}`);
-                  }
-                }}
-                activeOpacity={0.8}
-              >
-                <FileText color={colors.crimson} size={18} />
-                <View style={styles.docInfo}>
-                  <Text style={styles.docTitle} numberOfLines={1}>{doc.title}</Text>
-                  <Text style={styles.docMeta}>{doc.type || 'Document'} {doc.size ? `• ${doc.size}` : ''} • Verified Document</Text>
-                </View>
-                <Text style={styles.docAction}>View</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        ) : null}
-
-        {/* Official Contact Info */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionHeader}>OFFICIAL CONTACT DETAILS</Text>
-
-          <View style={styles.contactItem}>
-            <Mail color={colors.primary} size={15} />
-            <Text style={styles.contactText}>{currentUser.contact?.email || '—'}</Text>
-          </View>
-
-          <View style={styles.contactItem}>
-            <Phone color={colors.primary} size={15} />
-            <Text style={styles.contactText}>{currentUser.contact?.phone || '—'}</Text>
-          </View>
-
-          <View style={styles.contactItem}>
-            <Globe color={colors.primary} size={15} />
-            <Text style={styles.contactText}>{currentUser.contact?.website || '—'}</Text>
-          </View>
-
-          <View style={styles.contactItem}>
-            <MapPin color={colors.primary} size={15} />
-            <Text style={styles.contactText}>{currentUser.contact?.officeAddress || '—'}</Text>
-          </View>
-        </View>
-
-        {/* Action Buttons */}
-        <View style={styles.actionsBox}>
-          <TouchableOpacity
-            style={styles.homeActionBtn}
-            onPress={handleGoHome}
-            activeOpacity={0.8}
-            accessibilityLabel="Go to Homepage"
-          >
-            <Home color={colors.white} size={16} />
-            <Text style={styles.homeBtnText}>Go to Homepage</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.primaryActionBtn}
-            onPress={() => openDigitalBusinessCard()}
-            activeOpacity={0.8}
-          >
-            <CreditCard color={colors.white} size={16} />
-            <Text style={styles.primaryBtnText}>View Digital Visiting Card</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.secondaryActionBtn}
-            onPress={() => {
-              Alert.alert(
-                'Member Profile Link',
-                `BBC profile link: https://bengalbusinesscouncil.com/members/${currentUser.id}`
-              );
-            }}
-            activeOpacity={0.8}
-          >
-            <Share2 color={colors.primary} size={16} />
-            <Text style={styles.secondaryBtnText}>Share My Profile</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.logoutActionBtn}
-            onPress={() => {
-              logout();
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.logoutBtnText}>Sign Out / Switch Account</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+        </ScrollView>
       )}
     </SafeAreaView>
   );

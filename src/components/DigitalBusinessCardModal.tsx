@@ -42,6 +42,8 @@ import {
 import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
 import { InitialsAvatar } from './InitialsAvatar';
+import { UserTierBadge } from './UserTierBadge';
+import { getUserTierInfo } from '../utils/userTierBadges';
 import { PremiumToast, ToastType } from './PremiumToast';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -101,7 +103,7 @@ export const DigitalBusinessCardModal: React.FC = () => {
     visible: false,
     title: '',
     message: '',
-    onConfirm: () => {},
+    onConfirm: () => { },
   });
 
   const [toast, setToast] = useState<{
@@ -122,6 +124,7 @@ export const DigitalBusinessCardModal: React.FC = () => {
 
   const user = selectedBusinessCardUser || currentUser;
   const isMe = user.id === currentUser.id;
+  const tierInfo = getUserTierInfo(user);
 
   const connInfo = user?.id ? connectionStatuses[user.id] : undefined;
   const status = connInfo?.status || 'none';
@@ -500,12 +503,10 @@ export const DigitalBusinessCardModal: React.FC = () => {
                     </View>
                     <View>
                       <Text style={styles.councilName}>BENGAL BUSINESS COUNCIL</Text>
-                      <Text style={styles.councilMotto}>Executive Council Member</Text>
+                      {/* <Text style={styles.councilMotto}>Executive Council Member</Text> */}
                     </View>
                   </View>
-                  <View style={styles.tierPill}>
-                    <Text style={styles.tierPillText}>{user.membershipTier}</Text>
-                  </View>
+
                 </View>
 
                 {/* Member Details */}
@@ -514,19 +515,22 @@ export const DigitalBusinessCardModal: React.FC = () => {
                     <InitialsAvatar
                       name={user.name}
                       uri={user.avatar || undefined}
-                      size={54}
+                      user={user}
+                      size={62}
                       style={styles.cardAvatar}
                     />
                     <View style={styles.memberInfoCol}>
                       <View style={styles.verifiedRow}>
-                        <Text style={styles.cardMemberName}>{user.name}</Text>
+                        <Text style={styles.cardMemberName}>{user.name} - {tierInfo.label}</Text>
                         {user.isGstVerified && <ShieldCheck color={colors.emerald} size={16} />}
                       </View>
                       <Text style={styles.cardDesignation}>{user.designation || 'Member'}</Text>
                       {user.companyName ? (
                         <Text style={styles.cardCompany}>{user.companyName}</Text>
                       ) : null}
+
                     </View>
+                    <UserTierBadge user={user} size={60} />
                   </View>
 
                   <View style={styles.divider} />
@@ -1008,10 +1012,10 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     ...(Platform.OS === 'web'
       ? ({
-          filter: 'blur(6px)',
-          userSelect: 'none',
-          pointerEvents: 'none',
-        } as any)
+        filter: 'blur(6px)',
+        userSelect: 'none',
+        pointerEvents: 'none',
+      } as any)
       : {}),
   },
   cardFooterLockPill: {
@@ -1053,10 +1057,10 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     ...(Platform.OS === 'web'
       ? ({
-          filter: 'blur(6px)',
-          userSelect: 'none',
-          pointerEvents: 'none',
-        } as any)
+        filter: 'blur(6px)',
+        userSelect: 'none',
+        pointerEvents: 'none',
+      } as any)
       : {}),
   },
   lockBadge: {
@@ -1096,8 +1100,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.88)',
     ...(Platform.OS === 'web'
       ? ({
-          backdropFilter: 'blur(8px)',
-        } as any)
+        backdropFilter: 'blur(8px)',
+      } as any)
       : {}),
   },
   qrLockCenter: {

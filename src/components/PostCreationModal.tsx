@@ -27,6 +27,7 @@ import {
 import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
 import { InitialsAvatar } from './InitialsAvatar';
+import { UserTierBadge } from './UserTierBadge';
 
 export const PostCreationModal: React.FC = () => {
   const { showCreatePostModal, closeCreatePost, createPost, editPost, editingPost, currentUser } = useApp();
@@ -186,13 +187,17 @@ export const PostCreationModal: React.FC = () => {
           >
             {/* Author Identity Card */}
             <View style={styles.authorRow}>
-              {currentUser.avatar ? (
-                <Image source={{ uri: currentUser.avatar }} style={styles.authorAvatar} />
-              ) : (
-                <InitialsAvatar name={currentUser.name} size={48} />
-              )}
+              <InitialsAvatar
+                name={currentUser.name}
+                uri={currentUser.avatar}
+                user={currentUser}
+                size={48}
+              />
               <View style={styles.authorInfo}>
-                <Text style={styles.authorName}>{currentUser.name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <UserTierBadge user={currentUser} size={15} />
+                  <Text style={styles.authorName}>{currentUser.name}</Text>
+                </View>
                 <Text style={styles.authorMeta} numberOfLines={1}>
                   {currentUser.companyName
                     ? `${currentUser.companyName} • ${currentUser.chapter || 'Council Member'}`

@@ -30,6 +30,8 @@ import {
 import { Post } from '../types';
 import { colors } from '../theme/colors';
 import { useApp } from '../context/AppContext';
+import { InitialsAvatar } from './InitialsAvatar';
+import { UserTierBadge } from './UserTierBadge';
 
 interface PostCardProps {
   post: Post;
@@ -255,13 +257,11 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onOpenProfile, onDirec
           }}
           activeOpacity={0.8}
         >
-          <Image
-            source={{
-              uri:
-                post.authorAvatar ||
-                `https://ui-avatars.com/api/?name=${encodeURIComponent(post.authorName || 'Member')}&background=0D1B2A&color=fff&bold=true`,
-            }}
-            style={styles.avatar}
+          <InitialsAvatar
+            name={post.authorName || 'Member'}
+            uri={post.authorAvatar || undefined}
+            user={authorUser}
+            size={38}
           />
           <View style={styles.verifiedIconBadge}>
             <ShieldCheck color={colors.emerald} size={10} />
@@ -279,6 +279,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onOpenProfile, onDirec
           activeOpacity={0.7}
         >
           <View style={styles.nameRow}>
+            <UserTierBadge user={authorUser || post.authorName} size={20} />
             <Text style={styles.authorName} numberOfLines={1}>{post.authorName}</Text>
             {cleanChapter ? (
               <View style={styles.chapterPill}>

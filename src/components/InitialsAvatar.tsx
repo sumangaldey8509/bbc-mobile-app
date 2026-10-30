@@ -2,16 +2,24 @@ import React from 'react';
 import { View, Text, Image, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { colors } from '../theme/colors';
 import { getInitials, colorForName } from '../utils/initials';
+import { User } from '../types';
 
-interface Props {
+export interface InitialsAvatarProps {
   name: string;
   uri?: string | null;
   size?: number;
   style?: StyleProp<ViewStyle>;
+  score?: number;
+  user?: Partial<User> | string | null;
 }
 
 /** Shows the member's photo when available, otherwise their initials. */
-export const InitialsAvatar: React.FC<Props> = ({ name, uri, size = 44, style }) => {
+export const InitialsAvatar: React.FC<InitialsAvatarProps> = ({
+  name,
+  uri,
+  size = 44,
+  style,
+}) => {
   const dim = { width: size, height: size, borderRadius: size / 2 };
 
   if (uri) {
